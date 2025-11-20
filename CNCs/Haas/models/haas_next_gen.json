@@ -1,0 +1,8 @@
+{
+  "_class": "com.flexxbotics.beans.EquipmentDefinition",
+  "controller": "NextGen",
+  "manufacturer": "Haas",
+  "machineModel": "Vf-Series",
+  "transformer": "haas_next_gen",
+  "type": "CNC"
+}

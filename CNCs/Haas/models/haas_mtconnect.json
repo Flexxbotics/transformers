@@ -1,0 +1,8 @@
+{
+  "_class": "com.flexxbotics.beans.EquipmentDefinition",
+  "controller": "NextGen",
+  "manufacturer": "Haas",
+  "machineModel": "Haas-MTConnect",
+  "transformer": "MTConnect",
+  "type": "CNC"
+}

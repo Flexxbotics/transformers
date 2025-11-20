@@ -1,8 +1,0 @@
-{
-  "_class": "com.flexxbotics.beans.EquipmentDefinition",
-  "controller": "Flexxbotics",
-  "manufacturer": "Flexxbotics",
-  "machineModel": "Flexxbotics",
-  "transformer": "Workcell",
-  "type": "PLC"
-}
