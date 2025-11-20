@@ -1,8 +1,0 @@
-{
-  "_class": "com.flexxbotics.beans.EquipmentDefinition",
-  "controller": "Legacy",
-  "manufacturer": "Haas",
-  "machineModel": "Vf-Series",
-  "transformer": "haas_serial",
-  "type": "CNC"
-}

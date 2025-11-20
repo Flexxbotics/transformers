@@ -1,8 +1,0 @@
-{
-  "_class": "com.flexxbotics.beans.EquipmentDefinition",
-  "controller": "TNC7",
-  "manufacturer": "DMG Mori",
-  "machineModel": "DMU50",
-  "transformer": "HeidenhainTNC7_Profinet",
-  "type": "PLC"
-}

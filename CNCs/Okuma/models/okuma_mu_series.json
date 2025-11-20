@@ -1,8 +1,0 @@
-{
-  "_class": "com.flexxbotics.beans.EquipmentDefinition",
-  "controller": "OSP300",
-  "manufacturer": "Okuma",
-  "machineModel": "MU Series",
-  "transformer": "Okuma",
-  "type": "CNC"
-}

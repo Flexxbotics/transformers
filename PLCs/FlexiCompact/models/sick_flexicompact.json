@@ -1,8 +1,0 @@
-{
-  "_class": "com.flexxbotics.beans.EquipmentDefinition",
-  "controller": "Flexi-Compact",
-  "manufacturer": "SICK",
-  "machineModel": "FlexiCompact",
-  "transformer": "FlexiCompact",
-  "type": "PLC"
-}
