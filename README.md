@@ -1,2 +1,2 @@
 # transformers
-Transformers compatible with the Flexxbotics Solution - FlexxCore
+Transformers compatible with the Flexxbotics Software Solution - FlexxCore
