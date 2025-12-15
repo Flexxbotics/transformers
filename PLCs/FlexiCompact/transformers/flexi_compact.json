@@ -1,0 +1,13 @@
+{
+  "_class": "FlexiCompact",
+  "transformer": "FlexiCompact",
+  "commands": {
+    "run_routine": {
+      "program": ""
+    }
+  },
+  "metaData": {
+    "ip_address": "",
+    "port": ""
+  }
+}

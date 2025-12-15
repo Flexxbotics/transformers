@@ -1,0 +1,8 @@
+{
+  "_class": "com.flexxbotics.beans.EquipmentDefinition",
+  "controller": "TNC530",
+  "manufacturer": "DMG Mori",
+  "machineModel": "DMU60",
+  "transformer": "HeidenhainTNC530",
+  "type": "PLC"
+}

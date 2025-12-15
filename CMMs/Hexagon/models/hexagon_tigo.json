@@ -1,0 +1,8 @@
+{
+  "_class": "com.flexxbotics.beans.EquipmentDefinition",
+  "controller": "Hexagon",
+  "manufacturer": "Hexagon",
+  "machineModel": "Tigo",
+  "transformer": "Hexagon",
+  "type": "CMM"
+}

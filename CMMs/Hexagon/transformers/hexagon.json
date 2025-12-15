@@ -1,0 +1,13 @@
+{
+  "_class": "Hexagon",
+  "transformer": "Hexagon",
+  "commands": {
+    "run_program": {
+      "program": ""
+    }
+  },
+  "metaData": {
+    "ip_address": "",
+    "port": "5500"
+  }
+}

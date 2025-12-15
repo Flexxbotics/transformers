@@ -1,0 +1,8 @@
+{
+  "_class": "com.flexxbotics.beans.EquipmentDefinition",
+  "controller": "ModbusTCP",
+  "manufacturer": "Wago",
+  "machineModel": "ModbusTCP",
+  "transformer": "Wago",
+  "type": "I/O"
+}

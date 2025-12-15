@@ -145,15 +145,13 @@ class UR(AbstractDevice):
             args = json.loads(args["value"])
 
             self._info(message="Sending command: " + command_name)
-            
+
             # Move to joints requires a longer timeout
             if command_name == "move_to_joints":
-                socket.setdefaulttimeout(int(args["timeout"]))
+                socket.setdefaulttimeout(int(args["timeout"])) # self.client.play_program()
 
             # Build a tuple with any passed in arguments to enable dynamic function calls
             function_name = f"self.client.{command_name}"
-            first_key = next(iter(args))
-            command_args.pop(first_key)
 
             # If the request has arguments, pass them to eval
             #   Otherwise just call the requested function directly from eval
@@ -168,6 +166,7 @@ class UR(AbstractDevice):
                 response = ur_cap_function()
 
         except Exception as e:
+            self._error(str(e))
             raise Exception(
                 "Error when sending command, did not get response from urcap: "
                 + command_name

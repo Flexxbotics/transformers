@@ -1,0 +1,8 @@
+{
+  "_class": "com.flexxbotics.beans.EquipmentDefinition",
+  "controller": "YaskawaMP2600",
+  "manufacturer": "Yaskawa",
+  "machineModel": "MP2600",
+  "transformer": "YaskawaMP2600",
+  "type": "Motor Controller"
+}

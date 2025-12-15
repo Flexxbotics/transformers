@@ -1,0 +1,14 @@
+{
+  "_class": "HeidenhainTNC7_Profinet",
+  "transformer": "HeidenhainTNC7_Profinet",
+  "commands": {
+    "": {
+      "": ""
+    }
+  },
+  "metaData": {
+    "plc_ip_address": "",
+    "plc_port": 502,
+    "cnc_ip_address": ""
+  }
+}

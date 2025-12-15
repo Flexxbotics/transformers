@@ -1,0 +1,8 @@
+{
+  "_class": "com.flexxbotics.beans.EquipmentDefinition",
+  "controller": "Hexagon",
+  "manufacturer": "Hexagon",
+  "machineModel": "Global S",
+  "transformer": "Hexagon",
+  "type": "CMM"
+}

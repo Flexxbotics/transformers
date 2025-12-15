@@ -1,0 +1,11 @@
+{
+  "_cls": "EquipmentDefinitionDocument",
+  "touched": true,
+  "created": "2025-01-01T00:00:00.000Z",
+  "_class": "com.flexxbotics.beans.EquipmentDefinition",
+  "controller": "VisionSuit",
+  "manufacturer": "Cognex",
+  "machineModel": "in-sight-2800",
+  "transformer": "CognexCamera",
+  "type": "Camera"
+}
