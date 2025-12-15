@@ -13,16 +13,14 @@ Flexxbotics Transformers are connector drivers that enable interoperable compati
 
 ## What You’ll Find in This Repository
 
-- Two example equipment transformers:
-  - Universal Robots
-  - Haas NextGen Controller
-- A base **Template** for creating your own transformer
-- An example **Workcell Transformer**, which embeds multiple transformers to:
+- Open source equipment transformers for use with Flexxbotics software
+- Example of a base **Transformer Template** for creating your own transformer
+- Example of a **Workcell Transformer**, which embeds multiple transformers to:
   - Reconcile workcell state  
   - Perform automatic restarts  
   - Run threaded controls  
   - Provide many additional advanced capabilities
-- An example of creating a **Script** callable from the Flexxbotics HMI Controls Configurator that can communicate with transformers
+- Example an **Automation Script** callable from the Flexxbotics HMI Controls Configurator or run in realtime that can communicate with transformers to perform automation tasks.
 
 ## What You Can Do
 
