@@ -88,7 +88,7 @@ class HaasNextGen(AbstractDevice):
     # DEVICE COMMUNICATION METHODS
     # ############################################################################## #
 
-    def _execute_command(self, command_name: str, command_args: str) -> str:
+    def _execute_command_v2(self, command_name: str, command_args: str) -> str:
         """
         Executes the command sent to the device.
 
@@ -209,7 +209,7 @@ class HaasNextGen(AbstractDevice):
 
         if status != "RUNNING":
             # Part count events
-            raw_cnc_count = int(self._execute_command(command_name="get_part_count", command_args="{}"))
+            raw_cnc_count = int(self._execute_command_v2(command_name="get_part_count", command_args="{}"))
             if self.internal_part_counter == 0:
                 self.internal_part_counter = raw_cnc_count
             if raw_cnc_count != self.internal_part_counter:

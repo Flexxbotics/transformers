@@ -1,0 +1,34 @@
+{
+  "_class": "FOCAS2",
+  "transformer": "focas2",
+  "commands": {
+    "get_mode": {
+      "arg": ""
+    },
+    "get_tool_changes": {
+      "arg": ""
+    },
+    "get_current_tool_number": {
+      "arg": ""
+    },
+    "get_power_time": {
+      "arg": ""
+    },
+    "get_motion_time": {
+      "arg": ""
+    },
+    "get_last_cycle": {
+      "arg": ""
+    },
+    "get_previous_cycle": {
+      "arg": ""
+    },
+    "get_part_count": {
+      "arg": ""
+    }
+  },
+  "metaData": {
+    "ip_address": "",
+    "port": "7083",
+  }
+}

@@ -1,0 +1,753 @@
+"""
+    :copyright: (c) 2022-2024, Flexxbotics, a Delaware corporation (the "COMPANY")
+        All rights reserved.
+
+        THIS SOFTWARE IS PROVIDED BY THE COMPANY ''AS IS'' AND ANY
+        EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+        WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+        DISCLAIMED. IN NO EVENT SHALL THE COMPANY BE LIABLE FOR ANY
+        DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+        (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+        LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+        ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+        (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+        SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+"""
+
+from __future__ import annotations
+
+from data_models.device import Device
+import json
+import base64
+import os
+import ctypes
+from ctypes import (
+    c_short,
+    c_ushort,
+    c_long,
+    c_ulong,
+    c_int,
+    c_char,
+    c_char_p,
+    c_float,
+    c_double,
+    POINTER,
+    byref,
+)
+from drivers.abstract_device import AbstractDevice
+
+
+# --------------------------------------------------------------------------------------
+# ctypes models (minimal set to support the commands implemented in _execute_command_v2)
+# These are directly based on the structures used in Flexx_Fanuc_FOCAS2.py.
+# --------------------------------------------------------------------------------------
+
+class _ODBST(ctypes.Structure):
+    _fields_ = [
+        ("hdck", c_short),
+        ("tmmode", c_short),
+        ("aut", c_short),
+        ("run", c_short),
+        ("motion", c_short),
+        ("mstb", c_short),
+        ("emergency", c_short),
+        ("alarm", c_short),
+        ("edit", c_short),
+    ]
+
+
+class _ODBM(ctypes.Structure):
+    _fields_ = [
+        ("datano", c_short),
+        ("dummy", c_short),
+        ("mcr_val", c_int),
+        ("dec_val", c_short),
+    ]
+
+
+class _IODBPMCUnion(ctypes.Union):
+    _fields_ = [
+        ("cdata", c_char),
+        ("idata", c_short),
+        ("ldata", ctypes.c_int32),
+        ("fdata", c_float),
+        ("dfdata", c_double),
+    ]
+
+    def get_by_dtype(self, data_type: int):
+        # data_type mapping: 0=char, 1=short, 2=long, 3=float, 4=double
+        if data_type == 0:
+            return self.cdata
+        if data_type == 1:
+            return self.idata
+        if data_type == 2:
+            return self.ldata
+        if data_type == 3:
+            return self.fdata
+        if data_type == 4:
+            return self.dfdata
+        raise ValueError(f"Unsupported data_type={data_type}")
+
+    def set_by_dtype(self, data_type: int, value):
+        if data_type == 0:
+            self.cdata = c_char(int(value))
+        elif data_type == 1:
+            self.idata = c_short(int(value))
+        elif data_type == 2:
+            self.ldata = ctypes.c_int32(int(value))
+        elif data_type == 3:
+            self.fdata = c_float(float(value))
+        elif data_type == 4:
+            self.dfdata = c_double(float(value))
+        else:
+            raise ValueError(f"Unsupported data_type={data_type}")
+
+
+class _IODBPMC(ctypes.Structure):
+    _fields_ = [
+        ("type_a", c_short),
+        ("type_d", c_short),
+        ("datano_s", c_short),
+        ("datano_e", c_short),
+        ("u", _IODBPMCUnion),
+    ]
+
+
+class _PRGDIR(ctypes.Structure):
+    _fields_ = [("prg_data", c_char * 8192)]
+
+
+# --------------------------------------------------------------------------------------
+# FOCAS2 driver class
+# --------------------------------------------------------------------------------------
+
+class FOCAS2(AbstractDevice):
+
+    def __init__(self, device: Device):
+        """
+        Template device class. Inherits AbstractDevice class.
+
+        :param Device:
+                    the device object
+
+        :return:    a new instance
+        """
+        # Get meta data of the device from its attributes, this contains information such as: ip address, ports, etc
+        self.meta_data = device.metaData
+        self.address = self.meta_data["ip_address"]
+        self.port = int(self.meta_data.get("port", 8193))
+
+        # FOCAS state
+        self._fwlib = None
+        self._handle = c_ushort(0)
+        self._connected = False
+
+        # Load the correct shared library for the platform (linux/amd64 in your Docker build)
+        self._load_fwlib()
+        self._define_fwlib_prototypes()
+
+    def __del__(self):
+        try:
+            if getattr(self, "_connected", False):
+                self._disconnect()
+        except Exception:
+            # Never raise in destructor
+            pass
+
+    # ############################################################################## #
+    # DEVICE COMMUNICATION METHODS
+    # ############################################################################## #
+
+    def _execute_command_v2(self, command_name: str, command_args: str) -> str:
+        """
+        Executes the command sent to the device.
+
+        :param command_name:
+                    the command to be executed
+        :param command_args:
+                    json with the arguments for the command
+
+        :return:    the response after execution of command.
+        """
+        # Parse the command from the incoming request
+        args = json.loads(command_args) if command_args else {}
+        try:
+            # ---- Connection management ----
+            if command_name == "connect":
+                timeout_s = int(args.get("timeout_s", 10))
+                self._connect(timeout_s=timeout_s)
+                return self._ok()
+
+            if command_name == "disconnect":
+                self._disconnect()
+                return self._ok()
+
+            # ---- Status / wait ----
+            if command_name == "read_status":
+                # Returns a dict of common status fields.
+                self._ensure_connected()
+                status = self._read_cnc_status()
+                return self._ok(status)
+
+            if command_name == "read_status_field":
+                # args: {"field": "run"}  (field in status dict)
+                self._ensure_connected()
+                field = args.get("field")
+                if not field:
+                    return self._err("Missing required arg: field")
+                status = self._read_cnc_status()
+                if field not in status:
+                    return self._err(f"Unknown status field: {field}")
+                return self._ok(str(status[field]))
+
+            if command_name == "wait_for_cnc":
+                # Wait until run==0 OR alarm==1 OR emergency==1
+                # args: {"poll_s": 0.4, "timeout_s": 43200}
+                import time
+
+                self._ensure_connected()
+                poll_s = float(args.get("poll_s", 0.4))
+                timeout_s = int(args.get("timeout_s", 43200))
+                start = time.time()
+
+                while True:
+                    status = self._read_cnc_status()
+                    if status.get("alarm", 0) == 1:
+                        return self._err("CNC alarm detected", data=status)
+                    if status.get("emergency", 0) == 1:
+                        return self._err("E-stop detected", data=status)
+                    if status.get("run", 0) == 0:
+                        return self._ok(status)
+
+                    if (time.time() - start) >= timeout_s:
+                        return self._err("Timed out waiting for CNC", data=status)
+
+                    time.sleep(poll_s)
+
+            # ---- Macro read/write ----
+            if command_name == "read_macro":
+                # args: {"macro": 651, "length": 10}
+                self._ensure_connected()
+                mcr_number = args.get("macro")
+                if mcr_number is None:
+                    return self._err("Missing required arg: macro")
+                length = int(args.get("length", 10))
+                mcr_val, dec_val, joined = self._read_macro(int(mcr_number), length=length)
+                return self._ok(str(joined))
+
+            if command_name == "write_macro":
+                # args: {"macro": 651, "mcr_val": 123, "dec_val": 2}
+                self._ensure_connected()
+                mcr_number = args.get("macro")
+                mcr_val = args.get("mcr_val")
+                dec_val = args.get("dec_val", 0)
+                if mcr_number is None or mcr_val is None:
+                    return self._err("Missing required args: macro, mcr_val (and optional dec_val)")
+                self._write_macro(int(mcr_number), int(mcr_val), int(dec_val))
+                return self._ok()
+
+            # ---- PMC read/write ----
+            if command_name == "read_pmc_range":
+                # args: {"section": 0, "data_type": 2, "start": 0, "end": 0, "length": 12}
+                self._ensure_connected()
+                required = ["section", "data_type", "start", "end", "length"]
+                missing = [k for k in required if k not in args]
+                if missing:
+                    return self._err(f"Missing required args: {', '.join(missing)}")
+                val = self._read_pmc_range(
+                    section=int(args["section"]),
+                    data_type=int(args["data_type"]),
+                    start=int(args["start"]),
+                    end=int(args["end"]),
+                    length=int(args["length"]),
+                )
+                # ensure JSON serializable
+                return self._ok(str(val))
+
+            if command_name == "write_pmc_range":
+                # args: {"length": 12, "section": 0, "data_type": 2, "start": 0, "end": 0, "value": 123}
+                self._ensure_connected()
+                required = ["length", "section", "data_type", "start", "end", "value"]
+                missing = [k for k in required if k not in args]
+                if missing:
+                    return self._err(f"Missing required args: {', '.join(missing)}")
+                self._write_pmc_range(
+                    length=int(args["length"]),
+                    section=int(args["section"]),
+                    data_type=int(args["data_type"]),
+                    start=int(args["start"]),
+                    end=int(args["end"]),
+                    value=args["value"],
+                )
+                return self._ok()
+
+            # ---- Program file operations (directory + upload/download) ----
+            if command_name == "get_filenames":
+                # args (optional): {"directory": "//CNC_MEM/USER/PATH1/PART_PROGRAMS"}
+                self._ensure_connected()
+                directory = args.get("directory", "//CNC_MEM/USER/PATH1/PART_PROGRAMS")
+                # Keep behaviour consistent with the legacy driver: set dir before listing
+                self._set_current_directory(directory)
+                names = self._get_filenames()
+                return self._ok(names)
+
+            if command_name == "get_current_directory":
+                self._ensure_connected()
+                d = self._get_current_directory()
+                return self._ok(d)
+
+            if command_name == "set_current_directory":
+                # args: {"directory": "//CNC_MEM/USER/PATH1/PART_PROGRAMS"}
+                self._ensure_connected()
+                directory = args.get("directory")
+                if not directory:
+                    return self._err("Missing required arg: directory")
+                self._set_current_directory(str(directory))
+                return self._ok()
+
+            if command_name == "program_upload":
+                # args: {"program_path": "//CNC_MEM/USER/PATH1/PART_PROGRAMS/O0010", "buffer_size": 1024}
+                self._ensure_connected()
+                program_path = args.get("program_path")
+                if not program_path:
+                    return self._err("Missing required arg: program_path")
+                buffer_size = int(args.get("buffer_size", 1024))
+                b64 = self._program_upload(str(program_path), buffer_size=buffer_size)
+                return self._ok(b64)
+
+            if command_name == "program_download":
+                # args: {"program_path": "//CNC_MEM/USER/PATH1/PART_PROGRAMS/O0010", "program_data_b64": "..."}
+                self._ensure_connected()
+                program_path = args.get("program_path")
+                program_data_b64 = args.get("program_data_b64")
+                if not program_path or not program_data_b64:
+                    return self._err("Missing required args: program_path, program_data_b64")
+                raw = base64.b64decode(program_data_b64)
+                self._program_download(str(program_path), raw)
+                return self._ok()
+
+            # ---- Unknown command ----
+            return self._err(f"Unknown command_name: {command_name}")
+
+        except Exception as e:
+            # Convert any exception into an error response string
+            return self._err(str(e))
+
+    def _read_interval_data(self) -> str:
+        """
+        Method to read the status of the device on an interval
+        """
+        pass
+
+    def _read_status(self, function: str = None) -> str:
+        status = ""
+        if function is None:
+            pass
+        elif function == "":  # Some string
+            pass
+        else:
+            pass
+        return status
+
+    def _read_variable(self, variable_name: str, function: str = None) -> str:
+        value = ""
+        if function is None:
+            pass
+        elif function == "":  # Some string
+            pass
+        else:
+            pass
+        return value
+
+    def _write_variable(self, variable_name: str, variable_value: str, function: str = None) -> str:
+        value = ""
+        if function is None:
+            pass
+        elif function == "":  # Some string
+            pass
+        else:
+            pass
+        return value
+
+    def _write_parameter(self, parameter_name: str, parameter_value: str, function: str = None) -> str:
+        value = ""
+        if function is None:
+            pass
+        elif function == "":  # Some string
+            pass
+        else:
+            pass
+        return value
+
+    def _read_parameter(self, parameter_name: str, function: str = None) -> str:
+        value = ""
+        if function is None:
+            pass
+        elif function == "":  # Some string
+            pass
+        else:
+            pass
+        return value
+
+    def _read_file_names(self) -> list:
+        self.programs = []
+        return self.programs
+
+    def _read_file(self, file_name: str) -> str:
+        file_data = ""
+        return base64.b64encode(file_data)
+
+    def _write_file(self, file_name: str, file_data: str):
+        pass
+
+    def _load_file(self, file_name: str):
+        pass
+
+    # ############################################################################## #
+    # INTERFACE HELPER METHODS
+    # ############################################################################## #
+
+    def _process_status(self, result: list):
+        print("Process status: ")
+        print(result)
+        if result[0] == "STATUSBUSY":
+            return "RUNNING"
+        if result[0] == "PROGRAM":
+            return result[2]
+        if result[0] == "":
+            return "BLANKSTRING"
+        if "STATUSBUSY" in result[0]:
+            return "RUNNING"
+        return "ERROR"
+
+    def _process_response(self, result, expected, actual_idx, data_idx):
+        if expected == result[actual_idx]:
+            value = result[data_idx]
+            return value
+        else:
+            self._error(message="Error reading variable from device")
+
+    # --------------------------------------------------------------------------------------
+    # Private: fwlib load + prototypes
+    # --------------------------------------------------------------------------------------
+
+    def _load_fwlib(self) -> None:
+        """
+        Loads the FANUC fwlib shared library via ctypes.
+
+        For linux/amd64 Docker builds, this should be the x64 .so (not the Windows DLL).
+        Resolution order:
+          1) meta_data["fwlib_path"] (if present)
+          2) env FOCAS_FWLIB_PATH
+          3) common in-container locations
+        """
+        if self._fwlib is not None:
+            return
+
+        candidates = []
+        md_path = self.meta_data.get("fwlib_path") if isinstance(self.meta_data, dict) else None
+        if md_path:
+            candidates.append(md_path)
+        env_path = os.getenv("FOCAS_FWLIB_PATH")
+        if env_path:
+            candidates.append(env_path)
+
+        # Common names/locations. Adjust to your container layout.
+        candidates += [
+            "/usr/local/lib/libfwlib32.so",
+            "/usr/local/lib/libfwlib32-linux-x64.so.1.0.5",
+            "/usr/lib/libfwlib32.so",
+            "/opt/fwlib/libfwlib32.so",
+        ]
+
+        last_err = None
+        for path in candidates:
+            try:
+                self._fwlib = ctypes.CDLL(path)
+                return
+            except OSError as e:
+                last_err = e
+
+        raise OSError(
+            "Unable to load FANUC fwlib shared library. "
+            f"Tried: {candidates}. Last error: {last_err}"
+        )
+
+    def _define_fwlib_prototypes(self) -> None:
+        """
+        Define only the fwlib entrypoints we use in _execute_command_v2.
+        """
+        fw = self._fwlib
+
+        # cnc_startupprocess(ushort, char*) -> short
+        fw.cnc_startupprocess.argtypes = [c_ushort, c_char_p]
+        fw.cnc_startupprocess.restype = c_short
+
+        # cnc_allclibhndl3(char*, ushort, long, ushort*) -> short
+        fw.cnc_allclibhndl3.argtypes = [c_char_p, c_ushort, c_long, POINTER(c_ushort)]
+        fw.cnc_allclibhndl3.restype = c_short
+
+        # cnc_freelibhndl(ushort) -> short
+        fw.cnc_freelibhndl.argtypes = [c_ushort]
+        fw.cnc_freelibhndl.restype = c_short
+
+        # cnc_statinfo(ushort, ODBST*) -> short
+        fw.cnc_statinfo.argtypes = [c_ushort, POINTER(_ODBST)]
+        fw.cnc_statinfo.restype = c_short
+
+        # pmc_rdpmcrng(ushort, short, short, ushort, ushort, ushort, IODBPMC*) -> short
+        fw.pmc_rdpmcrng.argtypes = [c_ushort, c_short, c_short, c_ushort, c_ushort, c_ushort, POINTER(_IODBPMC)]
+        fw.pmc_rdpmcrng.restype = c_short
+
+        # pmc_wrpmcrng(ushort, short, IODBPMC*) -> short
+        fw.pmc_wrpmcrng.argtypes = [c_ushort, c_short, POINTER(_IODBPMC)]
+        fw.pmc_wrpmcrng.restype = c_short
+
+        # cnc_rdmacro(ushort, short, short, ODBM*) -> short
+        fw.cnc_rdmacro.argtypes = [c_ushort, c_short, c_short, POINTER(_ODBM)]
+        fw.cnc_rdmacro.restype = c_short
+
+        # cnc_wrmacro(ushort, short, short, long, short) -> short
+        fw.cnc_wrmacro.argtypes = [c_ushort, c_short, c_short, c_long, c_short]
+        fw.cnc_wrmacro.restype = c_short
+
+        # Program / dir APIs used by the legacy driver:
+        fw.cnc_upstart4.argtypes = [c_ushort, c_short, c_char_p]
+        fw.cnc_upstart4.restype = c_short
+
+        fw.cnc_upload4.argtypes = [c_ushort, POINTER(c_long), c_char_p]
+        fw.cnc_upload4.restype = c_short
+
+        fw.cnc_upend4.argtypes = [c_ushort]
+        fw.cnc_upend4.restype = c_short
+
+        fw.cnc_dwnstart4.argtypes = [c_ushort, c_short, c_char_p]
+        fw.cnc_dwnstart4.restype = c_short
+
+        fw.cnc_download4.argtypes = [c_ushort, POINTER(c_long), c_char_p]
+        fw.cnc_download4.restype = c_short
+
+        fw.cnc_dwnend4.argtypes = [c_ushort]
+        fw.cnc_dwnend4.restype = c_short
+
+        fw.cnc_wrpdf_curdir.argtypes = [c_ushort, c_short, c_char_p]
+        fw.cnc_wrpdf_curdir.restype = c_short
+
+        fw.cnc_rdpdf_curdir.argtypes = [c_ushort, c_short, c_char_p]
+        fw.cnc_rdpdf_curdir.restype = c_short
+
+        fw.cnc_rdprogdir.argtypes = [c_ushort, c_short, c_long, c_long, c_ushort, POINTER(_PRGDIR)]
+        fw.cnc_rdprogdir.restype = c_short
+
+    # --------------------------------------------------------------------------------------
+    # Private: response helpers
+    # --------------------------------------------------------------------------------------
+
+    def _ok(self, data=None) -> str:
+        payload = {"success": True}
+        if data is not None:
+            payload["data"] = data
+        return json.dumps(payload)
+
+    def _err(self, message: str, *, data=None, code=None) -> str:
+        payload = {"success": False, "error": message}
+        if code is not None:
+            payload["code"] = code
+        if data is not None:
+            payload["data"] = data
+        return json.dumps(payload)
+
+    def _ret_check(self, ret: int, function: str) -> None:
+        # In FOCAS, 0 is generally EW_OK.
+        if int(ret) != 0:
+            raise Exception(f"Failed - {function}. Error code: {int(ret)}")
+
+    # --------------------------------------------------------------------------------------
+    # Private: connection + primitives
+    # --------------------------------------------------------------------------------------
+
+    def _connect(self, *, timeout_s: int = 10) -> None:
+        # Create log file if supported. Use a stable location in container.
+        # If FANUC fwlib doesn't support logging on a given build, it will return an error code.
+        try:
+            ret_log = self._fwlib.cnc_startupprocess(0, b"focas.log")
+            # Treat non-zero as non-fatal for startup log creation (some builds may not support)
+            # but still allow connect to proceed.
+        except Exception:
+            pass
+
+        # Free previous handle if present
+        if self._connected and int(self._handle.value) != 0:
+            try:
+                self._fwlib.cnc_freelibhndl(self._handle)
+            except Exception:
+                pass
+
+        self._handle = c_ushort(0)
+        ret = self._fwlib.cnc_allclibhndl3(
+            self.address.encode("utf-8"),
+            c_ushort(self.port),
+            c_long(timeout_s),
+            byref(self._handle),
+        )
+        self._ret_check(ret, "cnc_allclibhndl3")
+        self._connected = True
+
+    def _disconnect(self) -> None:
+        if not self._connected:
+            return
+        ret = self._fwlib.cnc_freelibhndl(self._handle)
+        self._ret_check(ret, "cnc_freelibhndl")
+        self._connected = False
+        self._handle = c_ushort(0)
+
+    def _ensure_connected(self) -> None:
+        if not self._connected:
+            # Auto-connect to match typical driver expectations.
+            self._connect(timeout_s=10)
+
+    def _read_cnc_status(self) -> dict:
+        stat = _ODBST()
+        ret = self._fwlib.cnc_statinfo(self._handle, byref(stat))
+        self._ret_check(ret, "cnc_statinfo")
+        return {
+            "hdck": int(stat.hdck),
+            "tmmode": int(stat.tmmode),
+            "aut": int(stat.aut),
+            "run": int(stat.run),
+            "motion": int(stat.motion),
+            "mstb": int(stat.mstb),
+            "emergency": int(stat.emergency),
+            "alarm": int(stat.alarm),
+            "edit": int(stat.edit),
+        }
+
+    def _read_macro(self, mcr_number: int, *, length: int = 10):
+        md = _ODBM()
+        ret = self._fwlib.cnc_rdmacro(self._handle, c_short(mcr_number), c_short(length), byref(md))
+        self._ret_check(ret, "cnc_rdmacro")
+
+        mcr_val = int(md.mcr_val)
+        dec_val = int(md.dec_val)
+        joined = self._join_decimal(mcr_val, dec_val)
+        return mcr_val, dec_val, joined
+
+    def _write_macro(self, mcr_number: int, mcr_val: int, dec_val: int):
+        ret = self._fwlib.cnc_wrmacro(self._handle, c_short(mcr_number), c_short(10), c_long(mcr_val), c_short(dec_val))
+        self._ret_check(ret, "cnc_wrmacro")
+
+    def _join_decimal(self, mcr_val: int, dec_val: int):
+        # FANUC macros often represent value as (mcr_val * 10^-dec_val).
+        try:
+            if dec_val <= 0:
+                return float(mcr_val)
+            return float(mcr_val) / (10 ** dec_val)
+        except Exception:
+            # Fallback to a string-ish representation if something unexpected happens.
+            return f"{mcr_val}e-{dec_val}"
+
+    def _read_pmc_range(self, *, section: int, data_type: int, start: int, end: int, length: int):
+        pmc_data = _IODBPMC()
+        ret = self._fwlib.pmc_rdpmcrng(
+            self._handle,
+            c_short(section),
+            c_short(data_type),
+            c_ushort(start),
+            c_ushort(end),
+            c_ushort(length),
+            byref(pmc_data),
+        )
+        self._ret_check(ret, "pmc_rdpmcrng")
+        return pmc_data.u.get_by_dtype(int(data_type))
+
+    def _write_pmc_range(self, *, length: int, section: int, data_type: int, start: int, end: int, value):
+        u = _IODBPMCUnion()
+        u.set_by_dtype(int(data_type), value)
+        pmc_data = _IODBPMC(c_short(section), c_short(data_type), c_short(start), c_short(end), u)
+        ret = self._fwlib.pmc_wrpmcrng(self._handle, c_short(length), byref(pmc_data))
+        self._ret_check(ret, "pmc_wrpmcrng")
+
+    def _get_filenames(self):
+        # Mirrors legacy behaviour: cnc_rdprogdir returns a blob of directory data in prg_data.
+        dir_data = _PRGDIR()
+        ret = self._fwlib.cnc_rdprogdir(self._handle, c_short(1), c_long(1), c_long(9999), c_ushort(256000), byref(dir_data))
+        self._ret_check(ret, "cnc_rdprogdir")
+        decoded = bytes(dir_data.prg_data).decode("utf-8", errors="ignore")
+        # Legacy driver drops leading/trailing '%' and splits on newline.
+        decoded = decoded.strip("\x00")
+        if decoded.startswith("%"):
+            decoded = decoded[1:]
+        if decoded.endswith("%"):
+            decoded = decoded[:-1]
+        names = [line for line in decoded.split("\n") if line.strip()]
+        return names
+
+    def _get_current_directory(self) -> str:
+        buf = ctypes.create_string_buffer(4096)
+        ret = self._fwlib.cnc_rdpdf_curdir(self._handle, c_short(1), buf)
+        self._ret_check(ret, "cnc_rdpdf_curdir")
+        return buf.value.decode("utf-8", errors="ignore")
+
+    def _set_current_directory(self, directory: str) -> None:
+        buf = ctypes.create_string_buffer(directory.encode("utf-8"))
+        ret = self._fwlib.cnc_wrpdf_curdir(self._handle, c_short(1), buf)
+        self._ret_check(ret, "cnc_wrpdf_curdir")
+
+    def _program_upload(self, program_path: str, *, buffer_size: int = 1024) -> str:
+        import time
+
+        # Ensure any prior upload is ended
+        try:
+            self._fwlib.cnc_upend4(self._handle)
+        except Exception:
+            pass
+
+        ret = self._fwlib.cnc_upstart4(self._handle, c_short(0), c_char_p(program_path.encode("utf-8")))
+        self._ret_check(ret, "cnc_upstart4")
+
+        chunks = []
+        while True:
+            size = c_long(buffer_size)
+            # FANUC examples often allocate large buffers; we keep it manageable.
+            buf = ctypes.create_string_buffer(buffer_size)
+            time.sleep(0.05)
+            ret_u = self._fwlib.cnc_upload4(self._handle, byref(size), buf)
+            # EW_BUFFER or non-zero can indicate end-of-data; we still append any received bytes.
+            raw = buf.raw[: int(size.value)] if int(size.value) > 0 else b""
+            if raw:
+                chunks.append(raw)
+            if int(ret_u) != 0:
+                break
+            # Some controllers include '%' terminator; stop if seen
+            if raw and b"%" in raw:
+                break
+
+        ret_end = self._fwlib.cnc_upend4(self._handle)
+        self._ret_check(ret_end, "cnc_upend4")
+
+        data = b"".join(chunks)
+        # Trim null padding
+        data = data.rstrip(b"\x00")
+        return base64.b64encode(data).decode("ascii")
+
+    def _program_download(self, program_path: str, program_data: bytes, *, max_chunk: int = 1400) -> None:
+        # Ensure any prior download is ended
+        try:
+            self._fwlib.cnc_dwnend4(self._handle)
+        except Exception:
+            pass
+
+        ret = self._fwlib.cnc_dwnstart4(self._handle, c_short(0), c_char_p(program_path.encode("utf-8")))
+        self._ret_check(ret, "cnc_dwnstart4")
+
+        # The legacy driver chunks the payload to 1400 bytes.
+        for i in range(0, len(program_data), max_chunk):
+            chunk = program_data[i : i + max_chunk]
+            size = c_long(len(chunk))
+            # ctypes wants a char*; create_string_buffer produces mutable char[].
+            buf = ctypes.create_string_buffer(chunk)
+            ret_d = self._fwlib.cnc_download4(self._handle, byref(size), buf)
+            self._ret_check(ret_d, "cnc_download4")
+
+        ret_end = self._fwlib.cnc_dwnend4(self._handle)
+        self._ret_check(ret_end, "cnc_dwnend4")

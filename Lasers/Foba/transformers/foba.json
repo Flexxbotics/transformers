@@ -1,0 +1,13 @@
+{
+  "_class": "FOBA",
+  "transformer": "FOBA",
+  "commands": {
+    "run_program": {
+      "program": ""
+    }
+  },
+  "metaData": {
+    "ip_address": "",
+    "port": "5500"
+  }
+}
