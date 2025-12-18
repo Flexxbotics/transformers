@@ -133,10 +133,11 @@ class FOCAS2(AbstractDevice):
         :return:    a new instance
         """
         try:
+            super().__init__(device)
             # Get meta data of the device from its attributes, this contains information such as: ip address, ports, etc
             self.meta_data = device.metaData
             self.address = self.meta_data["ip_address"]
-            self.port = int(self.meta_data.get("port", 7083))
+            self.port = int(self.meta_data.get("port", 8193))
 
             # FOCAS state
             self._fwlib = None
