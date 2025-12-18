@@ -134,7 +134,7 @@ class FOCAS2(AbstractDevice):
         # Get meta data of the device from its attributes, this contains information such as: ip address, ports, etc
         self.meta_data = device.metaData
         self.address = self.meta_data["ip_address"]
-        self.port = int(self.meta_data.get("port", 8193))
+        self.port = int(self.meta_data.get("port", 7083))
 
         # FOCAS state
         self._fwlib = None
@@ -319,7 +319,7 @@ class FOCAS2(AbstractDevice):
                 # args: {"program_path": "//CNC_MEM/USER/PATH1/PART_PROGRAMS/O0010", "program_data_b64": "..."}
                 self._ensure_connected()
                 program_path = args.get("program_path")
-                program_data_b64 = args.get("program_data_b64")
+                program_data_b64 = args.get("program_data_base64")
                 if not program_path or not program_data_b64:
                     return self._err("Missing required args: program_path, program_data_b64")
                 raw = base64.b64decode(program_data_b64)

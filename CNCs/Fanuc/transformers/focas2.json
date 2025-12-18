@@ -2,33 +2,62 @@
   "_class": "FOCAS2",
   "transformer": "focas2",
   "commands": {
-    "get_mode": {
+    "connect": {
+      "timeous_s": 10
+    },
+    "disconnect": {
       "arg": ""
     },
-    "get_tool_changes": {
+    "read_status": {
       "arg": ""
     },
-    "get_current_tool_number": {
+    "read_status_field": {
+      "field": "run"
+    },
+    "wait_for_cnc": {
+      "poll_s": 0.5,
+      "timeout_s": 43200
+    },
+    "write_macro": {
+      "macro": "",
+      "mcr_val": "",
+      "dec_val": ""
+    },
+    "read_pmc_range": {
+      "section": "",
+      "data_type": "",
+      "start": "",
+      "end": "",
+      "length": ""
+    },
+    "write_pmc_range": {
+      "arg": "",
+      "section": "",
+      "data_type": "",
+      "start": "",
+      "end": "",
+      "length": "",
+      "value": ""
+    },
+    "get_filenames": {
+      "directory": ""
+    },
+    "get_current_directory": {
       "arg": ""
     },
-    "get_power_time": {
-      "arg": ""
+    "set_current_directory": {
+      "directory": ""
     },
-    "get_motion_time": {
-      "arg": ""
+    "program_upload":{
+      "program_path": ""
     },
-    "get_last_cycle": {
-      "arg": ""
-    },
-    "get_previous_cycle": {
-      "arg": ""
-    },
-    "get_part_count": {
-      "arg": ""
+    "program_download": {
+      "program_path": "",
+      "program_data_base64": ""
     }
   },
   "metaData": {
     "ip_address": "",
-    "port": "7083",
+    "port": "7083"
   }
 }
