@@ -41,45 +41,45 @@ class FlexxCoreClient:
 
     def send_get_request(self, endpoint, params):
         endpoint = self.api_base_url + endpoint
-        print (endpoint)
+        print(endpoint)
         response_raw = requests.get(url=endpoint, params=params, timeout=self.request_timeout)
-
-        return response_raw
+        print(response_raw.text)
+        return response_raw.text
 
     def send_post_request(self, endpoint, body):
         endpoint = self.api_base_url + endpoint
-        print (endpoint)
+        print(endpoint)
         headers = {"Content-Type": "application/json"}
         response_raw = requests.post(url=endpoint, json=body, timeout=self.request_timeout, headers=headers)
-
+        print(response_raw.text)
         return response_raw
 
     def send_patch_request(self, endpoint, body):
         endpoint = self.api_base_url + endpoint
-        print (endpoint)
+        print(endpoint)
         headers = {"Content-Type": "application/json"}
         response_raw = requests.patch(url=endpoint, json=body, timeout=self.request_timeout, headers=headers)
-
+        print(response_raw.text)
         return response_raw
 
     def execute_command(self, device_id, command_name, args):
-        endpoint = "/devices/"+device_id+"/execute_command/"+command_name
+        endpoint = "/devices/" + device_id + "/execute_command/" + command_name
         body = args
         res = self.send_post_request(endpoint=endpoint, body=body)
 
         return res
 
     def set_variable_latest_value(self, device_id, variable_name, value):
-        endpoint = "/variables/latestValue/devices/"+device_id
-        body = {"variable_name" : variable_name, "latest_value": value}
+        endpoint = "/variables/latestValue/devices/" + device_id
+        body = {"variable_name": variable_name, "latest_value": value}
         res = self.send_patch_request(endpoint=endpoint, body=body)
 
         return res
 
     def get_variable_latest_value(self, device_id, variable_name):
-        endpoint = "/variables/latestValue/devices/"+device_id
-        params = {"name" : variable_name}
-        res = self.send_get_request(endpoint=endpoint, params=params)
+        endpoint = "/variables/latestValue/devices/" + device_id
+        params = {"name": variable_name}
+        res = self.send_get_request(endpoint=endpoint, params=params).strip()
 
         return res
 
@@ -105,35 +105,41 @@ class FlexxCoreClient:
         return res
 
     def get_part_property(self, infeed_idx, shelf_idx, part_idx, property):
-        endpoint = "/parts/infeeds/"+str(infeed_idx)+"/shelf/"+str(shelf_idx)+"/parts/"+str(part_idx)+"/properties/"+property
+        endpoint = "/parts/infeeds/" + str(infeed_idx) + "/shelf/" + str(shelf_idx) + "/parts/" + str(
+            part_idx) + "/properties/" + property
         params = {}
         res = self.send_get_request(endpoint=endpoint, params=params)
 
         return res
 
     def get_part_index_exists(self, infeed_idx, shelf_idx, part_idx):
-        endpoint = "/parts/infeeds/"+str(infeed_idx)+"/shelf/"+str(shelf_idx)+"/parts/"+str(part_idx)
+        endpoint = "/parts/infeeds/" + str(infeed_idx) + "/shelf/" + str(shelf_idx) + "/parts/" + str(part_idx)
         params = {}
         res = self.send_get_request(endpoint=endpoint, params=params)
 
         return res
 
     def load_program(self, device_id, program_name):
-        endpoint = "/devices/"+device_id+"/files/load_file_to_memory/"+program_name
+        endpoint = "/devices/" + device_id + "/files/load_file_to_memory/" + program_name
         params = {}
         res = self.send_get_request(endpoint=endpoint, params=params)
 
         return res
 
     def read_status(self, device_id):
-        endpoint = "/devices/"+device_id+"/status"
+        endpoint = "/devices/" + device_id + "/status"
         params = {}
         res = self.send_get_request(endpoint=endpoint, params=params)
 
         return res
 
+    def set_device_status(self, device_id, status):
+        endpoint = "/devices/" + device_id + "/status/" + status
+        body = {}
+        res = self.send_patch_request(endpoint=endpoint, body=body)
+
     def read_input(self, device_id, input_number):
-        endpoint = "/devices/"+device_id+"/io/di/"+input_number
+        endpoint = "/devices/" + device_id + "/io/di/" + input_number
         params = {}
         res = self.send_get_request(endpoint=endpoint, params=params)
 
@@ -150,6 +156,54 @@ class FlexxCoreClient:
         endpoint = "/workCell/status"
         params = {}
         res = self.send_get_request(endpoint=endpoint, params=params)
+
+        return res
+
+    def set_workcell_status(self, status):
+        endpoint = "/workCell/status/" + status
+        body = {}
+        res = self.send_patch_request(endpoint=endpoint, body=body)
+
+        return res
+
+    def pick_event(self, device_id, infeed_idx=0, shelf_idx=0, part_idx=0, fixture_idx=0, suppress_cycle=True):
+        endpoint = "/runRecords/events/pick"
+        body = {"device_id": device_id, "fixture_index": fixture_idx, "infeed_index": infeed_idx,
+                "shelf_index": shelf_idx, "part_index": part_idx, "suppress_cycle": suppress_cycle}
+        res = self.send_post_request(endpoint=endpoint, body=body)
+
+        return res
+
+    def count_event(self, device_id, infeed_idx=0, shelf_idx=0, part_idx=0):
+        endpoint = "/runRecords/events/partCount"
+        body = {"device_id": device_id, "infeed_index": infeed_idx, "shelf_index": shelf_idx, "part_index": part_idx}
+        res = self.send_post_request(endpoint=endpoint, body=body)
+
+        return res
+
+    def reset_parts(self, device_id, infeed_idx=0, shelf_idx=0, part_idx=0):
+        endpoint = "/parts/serializedPart/reset"
+        body = {"device_id": device_id, "infeed_index": infeed_idx, "shelf_index": shelf_idx, "part_index": part_idx}
+        res = self.send_patch_request(endpoint=endpoint, body=body)
+
+    def analog_variable_event(self, device_id, infeed_idx=0, shelf_idx=0, part_idx=0, variable_name="",
+                              variable_value=""):
+        endpoint = "/runRecords/events/analog"
+        body = {"device_id": device_id, "infeed_index": infeed_idx, "shelf_index": shelf_idx, "part_index": part_idx,
+                "variable_name": variable_name, "value": variable_value}
+        res = self.send_post_request(endpoint=endpoint, body=body)
+
+        return res
+
+    def contextual_event(self, event_type, metadata, monitoring_profile, name):
+        endpoint = "/runRecords/events/contextualEvent"
+        body = {
+            "event_type": event_type,
+            "metadata": metadata,
+            "monitoring_profile": monitoring_profile,
+            "name": name
+        }
+        res = self.send_post_request(endpoint=endpoint, body=body)
 
         return res
 
