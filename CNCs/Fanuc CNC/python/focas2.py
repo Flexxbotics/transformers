@@ -578,6 +578,9 @@ class FOCAS2(AbstractDevice):
             c_long(timeout_s),
             byref(self._handle),
         )
+        if ret != 0:
+            detail = self._get_detail_error(handle.value)
+            raise RuntimeError(f"cnc_allclibhndl3 failed rc={rc}, detail={detail}")
         self._ret_check(ret, "cnc_allclibhndl3")
         self._connected = True
 
