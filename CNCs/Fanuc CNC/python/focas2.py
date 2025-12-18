@@ -359,7 +359,14 @@ class FOCAS2(AbstractDevice):
     def _read_variable(self, variable_name: str, function: str = None) -> str:
         value = ""
         if function is None:
-            value = self._execute_command_v2(command_name="read_macro", command_args='{"value": "{"macro": "'+variable_name+'"}"}')
+            value_dict = {"macro": variable_name}
+            args = {
+                "value": json.dumps(value_dict)
+            }
+            return self._execute_command_v2(
+                command_name="read_macro",
+                command_args=json.dumps(args)
+            )
         elif function == "":  # Some string
             pass
         else:
