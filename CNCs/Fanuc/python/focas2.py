@@ -588,9 +588,11 @@ class FOCAS2(AbstractDevice):
             self._connect(timeout_s=10)
 
     def _read_cnc_status(self) -> dict:
+        self._connect()
         stat = _ODBST()
         ret = self._fwlib.cnc_statinfo(self._handle, byref(stat))
         self._ret_check(ret, "cnc_statinfo")
+        self._disconnect()
         return {
             "hdck": int(stat.hdck),
             "tmmode": int(stat.tmmode),
@@ -604,6 +606,7 @@ class FOCAS2(AbstractDevice):
         }
 
     def _read_macro(self, mcr_number: int, *, length: int = 10):
+        self._connect()
         md = _ODBM()
         ret = self._fwlib.cnc_rdmacro(self._handle, c_short(mcr_number), c_short(length), byref(md))
         self._ret_check(ret, "cnc_rdmacro")
@@ -611,10 +614,13 @@ class FOCAS2(AbstractDevice):
         mcr_val = int(md.mcr_val)
         dec_val = int(md.dec_val)
         joined = self._join_decimal(mcr_val, dec_val)
+        self._disconnect()
         return mcr_val, dec_val, joined
 
     def _write_macro(self, mcr_number: int, mcr_val: int, dec_val: int):
+        self._connect()
         ret = self._fwlib.cnc_wrmacro(self._handle, c_short(mcr_number), c_short(10), c_long(mcr_val), c_short(dec_val))
+        self._disconnect()
         self._ret_check(ret, "cnc_wrmacro")
 
     def _join_decimal(self, mcr_val: int, dec_val: int):
@@ -628,6 +634,7 @@ class FOCAS2(AbstractDevice):
             return f"{mcr_val}e-{dec_val}"
 
     def _read_pmc_range(self, *, section: int, data_type: int, start: int, end: int, length: int):
+        self._connect()
         pmc_data = _IODBPMC()
         ret = self._fwlib.pmc_rdpmcrng(
             self._handle,
@@ -639,17 +646,21 @@ class FOCAS2(AbstractDevice):
             byref(pmc_data),
         )
         self._ret_check(ret, "pmc_rdpmcrng")
+        self._disconnect()
         return pmc_data.u.get_by_dtype(int(data_type))
 
     def _write_pmc_range(self, *, length: int, section: int, data_type: int, start: int, end: int, value):
+        self._connect()
         u = _IODBPMCUnion()
         u.set_by_dtype(int(data_type), value)
         pmc_data = _IODBPMC(c_short(section), c_short(data_type), c_short(start), c_short(end), u)
         ret = self._fwlib.pmc_wrpmcrng(self._handle, c_short(length), byref(pmc_data))
         self._ret_check(ret, "pmc_wrpmcrng")
+        self._disconnect()
 
     def _get_filenames(self):
         # Mirrors legacy behaviour: cnc_rdprogdir returns a blob of directory data in prg_data.
+        self._connect()
         dir_data = _PRGDIR()
         ret = self._fwlib.cnc_rdprogdir(self._handle, c_short(1), c_long(1), c_long(9999), c_ushort(256000), byref(dir_data))
         self._ret_check(ret, "cnc_rdprogdir")
@@ -661,22 +672,28 @@ class FOCAS2(AbstractDevice):
         if decoded.endswith("%"):
             decoded = decoded[:-1]
         names = [line for line in decoded.split("\n") if line.strip()]
+        self._disconnect()
         return names
 
     def _get_current_directory(self) -> str:
+        self._connect()
         buf = ctypes.create_string_buffer(4096)
         ret = self._fwlib.cnc_rdpdf_curdir(self._handle, c_short(1), buf)
         self._ret_check(ret, "cnc_rdpdf_curdir")
+        self._disconnect()
         return buf.value.decode("utf-8", errors="ignore")
 
     def _set_current_directory(self, directory: str) -> None:
+        self._connect()
         buf = ctypes.create_string_buffer(directory.encode("utf-8"))
         ret = self._fwlib.cnc_wrpdf_curdir(self._handle, c_short(1), buf)
         self._ret_check(ret, "cnc_wrpdf_curdir")
+        self._disconnect()
 
     def _program_upload(self, program_path: str, *, buffer_size: int = 1024) -> str:
         import time
 
+        self._connect()
         # Ensure any prior upload is ended
         try:
             self._fwlib.cnc_upend4(self._handle)
@@ -709,9 +726,12 @@ class FOCAS2(AbstractDevice):
         data = b"".join(chunks)
         # Trim null padding
         data = data.rstrip(b"\x00")
+        self._disconnect()
+
         return base64.b64encode(data).decode("ascii")
 
     def _program_download(self, program_path: str, program_data: bytes, *, max_chunk: int = 1400) -> None:
+        self._connect()
         # Ensure any prior download is ended
         try:
             self._fwlib.cnc_dwnend4(self._handle)
@@ -732,3 +752,4 @@ class FOCAS2(AbstractDevice):
 
         ret_end = self._fwlib.cnc_dwnend4(self._handle)
         self._ret_check(ret_end, "cnc_dwnend4")
+        self._disconnect()

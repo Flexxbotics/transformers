@@ -1,7 +1,7 @@
 {
   "_class": "com.flexxbotics.beans.EquipmentDefinition",
   "controller": "FANUC I-Series",
-  "manufacturer": "FANUC",
+  "manufacturer": "FANUC CNC",
   "machineModel": "I-Series",
   "transformer": "focas2",
   "type": "CNC"
