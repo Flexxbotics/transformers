@@ -148,6 +148,7 @@ class FOCAS2(AbstractDevice):
             self._define_fwlib_prototypes()
 
         except Exception as e:
+            self._error(str(e))
             raise RuntimeError(f"FOCAS2 init failed: {e}") from e
 
     def __del__(self):
