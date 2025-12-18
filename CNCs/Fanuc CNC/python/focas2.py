@@ -35,7 +35,7 @@ from ctypes import (
     byref,
 )
 import shutil
-from drivers.abstract_device import AbstractDevice
+from transformers.abstract_device import AbstractDevice
 
 
 # -------------------------------
@@ -348,7 +348,7 @@ class FOCAS2(AbstractDevice):
     def _read_status(self, function: str = None) -> str:
         status = ""
         if function is None:
-            status = self._execute_command_v2(command_name="read_status", command_args="{''values': '{}'}")
+            status = self._execute_command_v2(command_name="read_status", command_args='{"value": "{}"}')
         elif function == "":  # Some string
             pass
         else:
@@ -358,7 +358,7 @@ class FOCAS2(AbstractDevice):
     def _read_variable(self, variable_name: str, function: str = None) -> str:
         value = ""
         if function is None:
-            value = self._execute_command_v2(command_name="read_macro", command_args="{''values': '{'macro': '"+variable_name+"'}'}")
+            value = self._execute_command_v2(command_name="read_macro", command_args='{"value": "{"macro": "'+variable_name+'"}"}')
         elif function == "":  # Some string
             pass
         else:
