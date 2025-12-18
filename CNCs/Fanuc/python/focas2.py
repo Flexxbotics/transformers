@@ -1,17 +1,17 @@
 """
-    :copyright: (c) 2022-2024, Flexxbotics, a Delaware corporation (the "COMPANY")
-        All rights reserved.
+    Copyright 2022–2024 Flexxbotics, Inc.
 
-        THIS SOFTWARE IS PROVIDED BY THE COMPANY ''AS IS'' AND ANY
-        EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-        WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-        DISCLAIMED. IN NO EVENT SHALL THE COMPANY BE LIABLE FOR ANY
-        DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-        (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-        LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-        ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-        (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-        SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+    Licensed under the Apache License, Version 2.0 (the "License");
+    you may not use this file except in compliance with the License.
+    You may obtain a copy of the License at
+
+        http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
 """
 
 from __future__ import annotations
@@ -37,10 +37,9 @@ from ctypes import (
 from drivers.abstract_device import AbstractDevice
 
 
-# --------------------------------------------------------------------------------------
-# ctypes models (minimal set to support the commands implemented in _execute_command_v2)
-# These are directly based on the structures used in Flexx_Fanuc_FOCAS2.py.
-# --------------------------------------------------------------------------------------
+# -------------------------------
+# ctypes models
+# -------------------------------
 
 class _ODBST(ctypes.Structure):
     _fields_ = [
@@ -171,6 +170,7 @@ class FOCAS2(AbstractDevice):
         """
         # Parse the command from the incoming request
         args = json.loads(command_args) if command_args else {}
+        args = json.loads(args["value"])
         try:
             # ---- Connection management ----
             if command_name == "connect":
@@ -187,7 +187,7 @@ class FOCAS2(AbstractDevice):
                 # Returns a dict of common status fields.
                 self._ensure_connected()
                 status = self._read_cnc_status()
-                return self._ok(status)
+                return str(status["run"])
 
             if command_name == "read_status_field":
                 # args: {"field": "run"}  (field in status dict)
@@ -198,7 +198,7 @@ class FOCAS2(AbstractDevice):
                 status = self._read_cnc_status()
                 if field not in status:
                     return self._err(f"Unknown status field: {field}")
-                return self._ok(str(status[field]))
+                return str(status[field])
 
             if command_name == "wait_for_cnc":
                 # Wait until run==0 OR alarm==1 OR emergency==1
@@ -233,7 +233,7 @@ class FOCAS2(AbstractDevice):
                     return self._err("Missing required arg: macro")
                 length = int(args.get("length", 10))
                 mcr_val, dec_val, joined = self._read_macro(int(mcr_number), length=length)
-                return self._ok(str(joined))
+                return str(joined)
 
             if command_name == "write_macro":
                 # args: {"macro": 651, "mcr_val": 123, "dec_val": 2}
@@ -262,7 +262,7 @@ class FOCAS2(AbstractDevice):
                     length=int(args["length"]),
                 )
                 # ensure JSON serializable
-                return self._ok(str(val))
+                return str(val)
 
             if command_name == "write_pmc_range":
                 # args: {"length": 12, "section": 0, "data_type": 2, "start": 0, "end": 0, "value": 123}
@@ -294,7 +294,7 @@ class FOCAS2(AbstractDevice):
             if command_name == "get_current_directory":
                 self._ensure_connected()
                 d = self._get_current_directory()
-                return self._ok(d)
+                return str(d)
 
             if command_name == "set_current_directory":
                 # args: {"directory": "//CNC_MEM/USER/PATH1/PART_PROGRAMS"}
@@ -313,7 +313,7 @@ class FOCAS2(AbstractDevice):
                     return self._err("Missing required arg: program_path")
                 buffer_size = int(args.get("buffer_size", 1024))
                 b64 = self._program_upload(str(program_path), buffer_size=buffer_size)
-                return self._ok(b64)
+                return b64
 
             if command_name == "program_download":
                 # args: {"program_path": "//CNC_MEM/USER/PATH1/PART_PROGRAMS/O0010", "program_data_b64": "..."}
@@ -342,7 +342,7 @@ class FOCAS2(AbstractDevice):
     def _read_status(self, function: str = None) -> str:
         status = ""
         if function is None:
-            pass
+            status = self._execute_command_v2(command_name="read_status", command_args="{''values': '{}'}")
         elif function == "":  # Some string
             pass
         else:
@@ -352,7 +352,7 @@ class FOCAS2(AbstractDevice):
     def _read_variable(self, variable_name: str, function: str = None) -> str:
         value = ""
         if function is None:
-            pass
+            value = self._execute_command_v2(command_name="read_macro", command_args="{''values': '{'macro': '"+variable_name+"'}'}")
         elif function == "":  # Some string
             pass
         else:
@@ -407,70 +407,55 @@ class FOCAS2(AbstractDevice):
     # INTERFACE HELPER METHODS
     # ############################################################################## #
 
-    def _process_status(self, result: list):
-        print("Process status: ")
-        print(result)
-        if result[0] == "STATUSBUSY":
-            return "RUNNING"
-        if result[0] == "PROGRAM":
-            return result[2]
-        if result[0] == "":
-            return "BLANKSTRING"
-        if "STATUSBUSY" in result[0]:
-            return "RUNNING"
-        return "ERROR"
-
-    def _process_response(self, result, expected, actual_idx, data_idx):
-        if expected == result[actual_idx]:
-            value = result[data_idx]
-            return value
-        else:
-            self._error(message="Error reading variable from device")
-
-    # --------------------------------------------------------------------------------------
-    # Private: fwlib load + prototypes
-    # --------------------------------------------------------------------------------------
-
     def _load_fwlib(self) -> None:
         """
         Loads the FANUC fwlib shared library via ctypes.
 
-        For linux/amd64 Docker builds, this should be the x64 .so (not the Windows DLL).
-        Resolution order:
-          1) meta_data["fwlib_path"] (if present)
-          2) env FOCAS_FWLIB_PATH
-          3) common in-container locations
+        For linux/amd64 Docker builds, this should be the x64.
         """
-        if self._fwlib is not None:
-            return
+        data_dir = "/app/protocols/dlls"
+        so_link = os.path.join(data_dir, "libfwlib32.so")
+        so_versioned = os.path.join(data_dir, "libfwlib32-linux-x64.so.1.0.5")
 
-        candidates = []
-        md_path = self.meta_data.get("fwlib_path") if isinstance(self.meta_data, dict) else None
-        if md_path:
-            candidates.append(md_path)
-        env_path = os.getenv("FOCAS_FWLIB_PATH")
-        if env_path:
-            candidates.append(env_path)
+        # Ensure directory is on loader path (helps dependency resolution)
+        os.environ["LD_LIBRARY_PATH"] = (
+            f"{data_dir}:" + os.environ.get("LD_LIBRARY_PATH", "")
+            if os.environ.get("LD_LIBRARY_PATH") else data_dir
+        )
 
-        # Common names/locations. Adjust to your container layout.
-        candidates += [
-            "/usr/local/lib/libfwlib32.so",
-            "/usr/local/lib/libfwlib32-linux-x64.so.1.0.5",
-            "/usr/lib/libfwlib32.so",
-            "/opt/fwlib/libfwlib32.so",
-        ]
+        # Perform linkage: create/refresh libfwlib32.so symlink
+        if not os.path.exists(so_link):
+            if os.path.exists(so_versioned):
+                try:
+                    os.symlink(so_versioned, so_link)
+                except FileExistsError:
+                    pass
+                except OSError:
+                    # Fallback: copy if symlinks are not allowed
+                    try:
+                        shutil.copy2(so_versioned, so_link)
+                    except Exception:
+                        pass
 
+        # Attempt to load (prefer stable name)
+        candidates = [so_link, so_versioned]
         last_err = None
+
         for path in candidates:
+            if not os.path.exists(path):
+                continue
             try:
-                self._fwlib = ctypes.CDLL(path)
+                self._fwlib = ctypes.CDLL(path, mode=ctypes.RTLD_GLOBAL)
+                self._fwlib_path = path
                 return
             except OSError as e:
                 last_err = e
 
-        raise OSError(
-            "Unable to load FANUC fwlib shared library. "
-            f"Tried: {candidates}. Last error: {last_err}"
+        raise FileNotFoundError(
+            "Unable to load FANUC FOCAS fwlib shared library from /app/protocols/dlls/. "
+            "Ensure libfwlib32-linux-x64.so.1.0.5 is present and matches linux/amd64. "
+            f"Tried: {candidates}. "
+            f"Last error: {last_err}"
         )
 
     def _define_fwlib_prototypes(self) -> None:
@@ -538,10 +523,6 @@ class FOCAS2(AbstractDevice):
 
         fw.cnc_rdprogdir.argtypes = [c_ushort, c_short, c_long, c_long, c_ushort, POINTER(_PRGDIR)]
         fw.cnc_rdprogdir.restype = c_short
-
-    # --------------------------------------------------------------------------------------
-    # Private: response helpers
-    # --------------------------------------------------------------------------------------
 
     def _ok(self, data=None) -> str:
         payload = {"success": True}
