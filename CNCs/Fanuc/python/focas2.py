@@ -132,19 +132,23 @@ class FOCAS2(AbstractDevice):
 
         :return:    a new instance
         """
-        # Get meta data of the device from its attributes, this contains information such as: ip address, ports, etc
-        self.meta_data = device.metaData
-        self.address = self.meta_data["ip_address"]
-        self.port = int(self.meta_data.get("port", 7083))
+        try:
+            # Get meta data of the device from its attributes, this contains information such as: ip address, ports, etc
+            self.meta_data = device.metaData
+            self.address = self.meta_data["ip_address"]
+            self.port = int(self.meta_data.get("port", 7083))
 
-        # FOCAS state
-        self._fwlib = None
-        self._handle = c_ushort(0)
-        self._connected = False
+            # FOCAS state
+            self._fwlib = None
+            self._handle = c_ushort(0)
+            self._connected = False
 
-        # Load the correct shared library for the platform (linux/amd64 in your Docker build)
-        self._load_fwlib()
-        self._define_fwlib_prototypes()
+            # Load the correct shared library for the platform (linux/amd64 in your Docker build)
+            self._load_fwlib()
+            self._define_fwlib_prototypes()
+
+        except Exception as e:
+            raise RuntimeError(f"FOCAS2 init failed: {e}") from e
 
     def __del__(self):
         try:
