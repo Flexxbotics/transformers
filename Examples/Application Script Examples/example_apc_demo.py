@@ -376,7 +376,7 @@ class OffsetVerificationWorkflow:
 # -----------------------
 # FlexxWorkflowApp Script
 # -----------------------
-class ModigToolingWorkflow:
+class ToolOffsetWorkflow:
 
     def __init__(self):
         self.client = FlexxCoreClient(flask_port="7081")
@@ -1050,5 +1050,5 @@ class ModigToolingWorkflow:
 # -----------------------
 
 if __name__ == "__main__":
-    workflow = ModigToolingWorkflow()
+    workflow = ToolOffsetWorkflow()
     workflow.run()
