@@ -34,6 +34,7 @@ from ctypes import (
     POINTER,
     byref,
 )
+import shutil
 from drivers.abstract_device import AbstractDevice
 
 
