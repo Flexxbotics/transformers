@@ -376,7 +376,25 @@ class FOCAS2(AbstractDevice):
     def _write_variable(self, variable_name: str, variable_value: str, function: str = None) -> str:
         value = ""
         if function is None:
-            pass
+            value_dict = {"macro": variable_name,
+                          "mcr_val": variable_value,
+                          "dec_val": 0}
+            args = {
+                "value": json.dumps(value_dict)
+            }
+            self._execute_command_v2(
+                command_name="write_macro",
+                command_args=json.dumps(args)
+            )
+
+            value_dict = {"macro": variable_name}
+            args = {
+                "value": json.dumps(value_dict)
+            }
+            return self._execute_command_v2(
+                command_name="read_macro",
+                command_args=json.dumps(args)
+            )
         elif function == "":  # Some string
             pass
         else:
