@@ -1,8 +1,8 @@
 {
   "_class": "com.flexxbotics.beans.EquipmentDefinition",
-  "controller": "R-30iB Mini Plus",
+  "controller": "R-30i Series",
   "manufacturer": "FANUC",
-  "machineModel": "CRX25",
+  "machineModel": "FANUC Robot",
   "transformer": "fanuc",
   "type": "6-Axis Robot"
 }
