@@ -1,0 +1,19 @@
+{
+  "_class": "Global400",
+  "transformer": "Global400",
+  "commands": {
+    "GET_CURRENT_TOOL": {
+      "": ""
+    },
+    "READ_BATCH_COUNTER": {
+      "": ""
+    },
+    "READ_CURRENT_BATCH_SIZE": {
+      "": ""
+    }
+  },
+  "metaData": {
+    "ip_address": "",
+    "port": ""
+  }
+}
