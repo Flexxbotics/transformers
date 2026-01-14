@@ -50,7 +50,14 @@ Flexxbotics Transformers enable **many-to-many interoperability** across heterog
 
 ## What You’ll Find in This Repository
 
-- Open source equipment transformers for use with Flexxbotics software:
+- Examples of base **Transformer Templates** for creating your own transformer
+- Examples of **Workcell Transformers**, which embed multiple transformers to:
+  - Reconcile workcell state  
+  - Perform automatic restarts  
+  - Run threaded controls  
+  - Provide many additional advanced capabilities
+- Examples of **Automation Scripts** callable from the Flexxbotics HMI Controls Configurator or run in realtime that can communicate with transformers to perform automation tasks.
+- **Open source equipment transformers** for use with Flexxbotics software:
   
 | Name | Description | File |
 |------|------------|------|
@@ -81,13 +88,6 @@ Flexxbotics Transformers enable **many-to-many interoperability** across heterog
 | WAGO | Connector driver for Modbus-TCP enabled communication with Wago I/O blocks | wago.py |
 | Sturtevant Richmont | Connector driver for the Sturtevant Richmont Global400 torque controller interface | global400.py |
 
-- Example of a base **Transformer Template** for creating your own transformer
-- Example of a **Workcell Transformer**, which embeds multiple transformers to:
-  - Reconcile workcell state  
-  - Perform automatic restarts  
-  - Run threaded controls  
-  - Provide many additional advanced capabilities
-- Example an **Automation Script** callable from the Flexxbotics HMI Controls Configurator or run in realtime that can communicate with transformers to perform automation tasks.
 
 ---
 
