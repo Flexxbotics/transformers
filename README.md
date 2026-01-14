@@ -1,41 +1,98 @@
-# Flexxbotics Transformers
+# Flexxbotics Transformers  
+**Industrial Device & Automation Transformers for the FlexxCore Platform**
 
-This repository is home to **open-source transformers** that are compatible with **FlexxCore** within the **Flexxbotics platform**.
+**Flexxbotics Transformers** are open-source, industrial-grade connector drivers designed for use with **FlexxCore**, the Flexxbotics Smart Factory and Workcell Automation platform.
 
-Flexxbotics Transformers are connector drivers that enable interoperable compatibility with a wide range of industrial protocols, supporting data exchange via both open standards and proprietary interfaces.
+These transformers provide a standardized abstraction layer for integrating **industrial machines, robots, PLCs, CNCs, CMMs, and automation equipment** using both **open industrial protocols** and **vendor-specific proprietary interfaces**.
+
+> This repository is focused on **industrial automation transformers** — not machine learning or NLP transformers.
+
+---
 
 ## Overview
 
-- Load transformers into the Flexxbotics software runtime to operate
-- New connector drivers interoperate **many-to-many** across all endpoints
-- Every new transformer you create and add is automatically compatible with all others loaded
-- Use your Python IDE of choice to create new transformers
+Flexxbotics Transformers enable **many-to-many interoperability** across heterogeneous industrial devices within a single automation runtime.
+
+Key concepts:
+
+- Transformers are loaded into the **Flexxbotics runtime** (Edge or Standalone)
+- Each transformer exposes a standardized interface regardless of underlying protocol
+- New transformers automatically interoperate with all others loaded in the same runtime
+- Designed for **workcell-level automation**, orchestration, and recovery
+- Implemented in **Python**, using familiar development workflows
+
+---
 
 ## What You’ll Find in This Repository
 
-- Open source equipment transformers for use with Flexxbotics software
-- Example of a base **Transformer Template** for creating your own transformer
-- Example of a **Workcell Transformer**, which embeds multiple transformers to:
-  - Reconcile workcell state  
-  - Perform automatic restarts  
-  - Run threaded controls  
-  - Provide many additional advanced capabilities
-- Example an **Automation Script** callable from the Flexxbotics HMI Controls Configurator or run in realtime that can communicate with transformers to perform automation tasks.
+This repository includes production-ready examples and templates for building industrial automation integrations:
 
-## What You Can Do
+- **Open-source equipment transformers** compatible with FlexxCore
+- A base **Transformer Template** for creating new device connectors
+- A reference **Workcell Transformer** that composes multiple transformers to:
+  - Reconcile overall workcell state  
+  - Perform automated fault recovery and restarts  
+  - Execute threaded and asynchronous controls  
+  - Coordinate multi-device automation logic  
+- Example **Automation Scripts** that:
+  - Are callable from the Flexxbotics HMI / Controls Configurator  
+  - Can run in real time  
+  - Interact directly with transformers to execute automation tasks  
 
-- Connect machines to robots and other automation
-- Create multi-machine automation cells
-- Program your own machine-to-automation transformers
-- Get, use, modify, and redistribute transformers
+---
+
+## What You Can Do With Transformers
+
+Using Flexxbotics Transformers, you can:
+
+- Connect machines, robots, and inspection equipment together
+- Build multi-machine robotic automation cells
+- Abstract vendor-specific protocols behind a common interface
+- Create custom machine-to-automation logic in Python
+- Extend or modify existing transformers to meet site-specific needs
+- Redistribute transformers under a permissive open-source license
+
+---
+
+## Intended Use Cases
+
+Flexxbotics Transformers are commonly used for:
+
+- Robotic workcells  
+- CNC machine integration  
+- PLC-based automation  
+- Industrial inspection and metrology  
+- Smart factory data acquisition  
+- Closed-loop machine-to-robot coordination  
+
+---
 
 ## License
 
-These open-source transformers are released under the **Apache 2.0 License**.  
-You are not required to contribute modifications back, though the community always appreciates improvements that advance capabilities.
+All transformers in this repository are released under the **Apache 2.0 License**.
 
-## Feedback
+- Commercial use is permitted  
+- Modifications are not required to be contributed back  
+- Contributions are welcome and encouraged  
 
-Let us know what you like about Flexxbotics Transformers—we want to hear from you.  
-Even more importantly, tell us what you don’t like or what you’d like to see next. Your feedback and innovative ideas help shape the roadmap.
+See the `LICENSE` file for full details.
 
+---
+
+## Feedback & Community
+
+We welcome feedback from integrators, automation engineers, and developers.
+
+- Share what works well
+- Call out pain points or limitations
+- Propose new transformer ideas or enhancements
+
+Your input directly influences the evolution of the Flexxbotics Transformers ecosystem.
+
+---
+
+## Tags / Keywords
+
+`industrial automation` · `robotics` · `workcell automation` · `CNC` · `PLC` · `CMM` ·  
+`industrial protocols` · `factory automation` · `smart factory` · `robot integration` ·  
+`FlexxCore` · `Flexxbotics` · `Flexxbotics Transformers` · `Python automation`
