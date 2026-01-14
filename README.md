@@ -33,7 +33,7 @@ Flexxbotics Transformers enable **many-to-many interoperability** across heterog
 ---
 
 ## Links
-
+- [Flexxbotics Developer Guide](../../wiki).
 - Download Software Runtime and Studio: https://flexxbotics.com/download/
 - Technical Documentation (Install Guide, Developer Guide): https://flexxbotics.com/technical-documents/
 
