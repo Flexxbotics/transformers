@@ -1,5 +1,5 @@
 {
-  "_class": "WorkcellTransformer",
+  "_class": "WorkCell",
   "transformer": "WorkCell",
   "commands": {},
   "metaData": {}
