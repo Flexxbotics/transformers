@@ -131,4 +131,4 @@ Machine model definitions specify:
 
 industrial automation · robotics · workcell automation · CNC · PLC · CMM ·  
 industrial protocols · factory automation · robot integration ·  
-FlexxCore · Flexxbotics · Python automation
+FlexxCore · Flexxbotics · Python automation · interoperability · connectivity
