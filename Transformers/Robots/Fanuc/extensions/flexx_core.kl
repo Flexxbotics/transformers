@@ -1,0 +1,942 @@
+PROGRAM FLEXX_CORE_COMMAND
+%COMMENT = 'FLEXX_CORE_COMMAND'
+%NOLOCKGROUP
+%NOPAUSE = ERROR + COMMAND + TPENABLE 
+%NOABORT = ERROR + COMMAND
+%ENVIRONMENT uif
+%ENVIRONMENT sysdef
+%ENVIRONMENT memo
+%ENVIRONMENT kclop
+%ENVIRONMENT bynam
+%ENVIRONMENT fdev
+%ENVIRONMENT flbt
+%ENVIRONMENT REGOPE
+%INCLUDE klevccdf
+%INCLUDE klevkeys
+%INCLUDE klevkmsk
+--%INCLUDE klutils
+
+VAR
+	
+	-- send_core_command
+	status : INTEGER
+	host_ip : STRING[64]
+	host_port : STRING[6]
+    request_type : STRING[5]
+    endpoint : STRING[254]
+    body : STRING[254]
+    query : STRING[254]
+    request : STRING[254]
+    body_len_str : STRING[6]
+    body_len : INTEGER
+    port : INTEGER
+	flexx_cmd : STRING[254]
+	flexx_cmd_arg : INTEGER 
+	flexx_error_reg : INTEGER
+	flexx_res_reg : INTEGER 
+	response_length : INTEGER
+	file_var : FILE
+	data_avail : BOOLEAN
+	entry : INTEGER
+	flexx_res: STRING[254]
+	file_status: INTEGER
+	use_http : BOOLEAN
+    
+    -- build_base_url
+    base_url : STRING[64]
+    	
+	-- generic types for register calls
+	data_type_string: INTEGER
+	data_type_int: INTEGER
+	int_value: INTEGER
+	real_value : REAL
+	string_value : STRING[35]
+	
+	-- part types
+	infeed_index_str : STRING[16]
+	shelf_index_str : STRING[16]
+	part_index_str : STRING[16]
+	fixture_index_str : STRING[16]
+	new_infeed_str : STRING[16]
+	new_shelf_str : STRING[16]
+	new_part_str : STRING[16]
+
+	-- shared variables
+	infeed_idx FROM STRYKER_MAIN : INTEGER
+	gripper_infeed_idx FROM STRYKER_MAIN : INTEGER
+	gripper_shelf_idx FROM STRYKER_MAIN : INTEGER
+	gripper_part_idx FROM STRYKER_MAIN : INTEGER
+	wash_cycle_limit FROM STRYKER_MAIN : INTEGER
+	wash_cycle_cnt FROM STRYKER_MAIN : INTEGER
+	drain_fill_status FROM STRYKER_MAIN : INTEGER
+	ultrasonic_cycles_str FROM STRYKER_MAIN : STRING[16]
+	carousel_active FROM STRYKER_MAIN : STRING[16]
+	carousel_fail_cnt FROM STRYKER_MAIN : INTEGER
+	carousel_status FROM STRYKER_MAIN : STRING[16]
+	cnc_1_active FROM STRYKER_MAIN : STRING[16]
+	cnc_2_active FROM STRYKER_MAIN : STRING[16]
+	cnc_3_active FROM STRYKER_MAIN : STRING[16]
+	cnc_4_active FROM STRYKER_MAIN : STRING[16]
+	cnc_5_active FROM STRYKER_MAIN : STRING[16]
+	cnc_6_active FROM STRYKER_MAIN : STRING[16]
+	robot_device_id FROM STRYKER_MAIN : STRING[24]
+	yaskawa_device_id FROM STRYKER_MAIN : STRING[24]
+	cnc_1_fault_reason FROM STRYKER_MAIN : STRING[254]
+	cnc_3_fault_reason FROM STRYKER_MAIN : STRING[254]
+
+
+ROUTINE set_custom_status(robot_status_arg : STRING; use_custom_status_arg : INTEGER) FROM FLEXX_SET_STATUS
+
+ROUTINE parse_response
+	BEGIN
+	    
+    END parse_response
+
+ROUTINE build_base_url
+
+	BEGIN
+	
+		use_http = FALSE
+	
+		-- Build the base url
+		GET_STR_REG(2, host_ip, status)
+		GET_STR_REG(3, host_port, status)
+	
+		IF use_http = TRUE THEN
+			base_url = 'http://'+host_ip+':'+host_port+'/api/v2e'
+		ELSE
+			base_url = ''
+		ENDIF
+	
+		--WRITE('Host: ' + host_ip,CR) 
+		--WRITE('Port: ' + host_port,CR) 
+		--WRITE('Base URL: ' + base_url,CR) 
+		
+		SET_STR_REG(4,base_url,status) --set base url is SR[4]
+		
+	END build_base_url
+
+ROUTINE send_core_command(request_type : STRING; endpoint : STRING; body : STRING)
+	BEGIN
+		
+		--WRITE('Endpoint: ' + endpoint,CR) 
+  		--WRITE('Request Type: ' + request_type,CR)
+  		--WRITE ('Request Body: ' + body,CR)
+	
+   		--Set register numbers
+   		flexx_error_reg = 1
+   		flexx_res_reg = 1
+
+   		--Get values from string registers
+   		GET_STR_REG(2,host_ip, status)
+   		GET_STR_REG(3,host_port, status)
+   
+   		-- Add base url to endpoint
+   		build_base_url
+   		GET_STR_REG(4, base_url, status)
+   		endpoint = base_url + endpoint 
+
+    	-- Calculate content length
+    	body_len = STR_LEN(body)
+    	CNV_INT_STR(body_len, 1, 0, body_len_str)
+    
+    	use_http = FALSE
+	
+		IF use_http = TRUE THEN
+    		-- Construct HTTP request
+    		IF request_type = 'GET' THEN
+        		request = 'GET ' + endpoint + ' HTTP/1.1' + '\r\n' +
+                  		'Host: ' + host_ip + '\r\n' +
+                  		'Connection: close' + '\r\n' + '\r\n'
+        		GO TO got_command
+    		ELSE
+        		request = 'invalid'
+    		ENDIF
+    
+    		IF request_type = 'POST' THEN
+    			request = 'POST ' + endpoint + ' HTTP/1.1' + '\r\n' +
+                  		'Host: ' + host_ip + '\r\n' +
+                  		'Content-Type: application/json' + '\r\n' +
+                  		'Content-Length: ' + body_len_str + '\r\n' +
+                  		'Connection: close' + '\r\n' + '\r\n' +
+                  		body
+        		GO TO got_command
+    		ELSE
+        		request = 'invalid'
+    		ENDIF
+    
+    		IF request_type = 'PATCH' THEN
+    			request = 'PATCH ' + endpoint + ' HTTP/1.1' + '\r\n' +
+                  		'Host: ' + host_ip + '\r\n' +
+                  		'Content-Type: application/json' + '\r\n' +
+                  		'Content-Length: ' + body_len_str + '\r\n' +
+                  		'Connection: close' + '\r\n' + '\r\n' +
+                 		body
+        		GO TO got_command
+    		ELSE
+        		request = 'invalid'
+    		ENDIF
+    	
+    		GOT_COMMAND::
+			flexx_cmd = request
+			port = 7081
+    
+    	ELSE
+  			-- Format the command
+  			flexx_cmd = '{"type": "' + request_type + '", "endpoint": "' + endpoint + '", "body": ' + body + '}'	
+			port = 7082
+		
+		ENDIF
+	
+		--WRITE('Setting up system variables...',CR)
+		SET_FILE_ATR(file_var, ATR_IA)
+		SET_VAR(entry, '*SYSTEM*','$HOSTC_CFG[2].$SERVER_PORT',port,status)
+		SET_INT_REG(flexx_error_reg,1,status) --Always initialize flexx error reg to 1 (error)
+		SET_STR_REG(flexx_res_reg,'',status) --Always initialize flexx res reg to ''
+		
+		SEND_COMMAND::
+		--WRITE('Connecting to C2:...',CR)
+		data_avail = FALSE
+		entry = 0
+		MSG_CONNECT('C2:',file_status)
+		--WRITE('Connection response: ')
+		--WRITE(file_status,CR)
+		IF file_status = 0 THEN
+			--WRITE('Opening...',CR) -- Open C2: 
+			OPEN FILE file_var ('rw', 'C2:')
+			file_status = IO_STATUS(file_var)
+			IF file_status = 0 THEN
+				--WRITE('Connected!',CR)
+				--WRITE('Sending command...',CR)
+				--WRITE(flexx_cmd,CR)
+				WRITE file_var (flexx_cmd::254)
+				file_status = IO_STATUS(file_var)
+				DELAY(25)			
+				IF file_status = 0 THEN
+					--WRITE('Command sent!',CR)
+					--WRITE('Reading response...',CR)
+					WHILE data_avail = FALSE DO -- think we can add timeout logic here
+						BYTES_AHEAD(file_var, entry, file_status)
+						IF entry > 0 THEN
+							data_avail = TRUE
+						ENDIF
+					ENDWHILE
+					--WRITE('Reading response result:')
+					READ file_var (flexx_res::entry)
+					file_status = IO_STATUS(file_var)
+					--WRITE(flexx_res,CR)
+					response_length = STR_LEN(flexx_res)-2
+					flexx_res = SUB_STR(flexx_res, 2, response_length)
+					SET_STR_REG(flexx_res_reg,flexx_res,status)
+					IF flexx_res = 'ERROR' THEN
+						SET_INT_REG(flexx_error_reg,1, status)
+						set_custom_status('COMM_ERROR', 1)
+						PAUSE
+						MSG_DISCO('C2:',0)
+						DELAY(500)
+						GO TO send_command
+					ELSE
+						SET_INT_REG(flexx_error_reg,0,status)
+					ENDIF					
+				ELSE
+					SET_INT_REG(flexx_error_reg,1, status)
+					--WRITE('Error writing command',CR)
+				ENDIF
+			
+				--WRITE('Closing file...',CR)
+				CLOSE FILE file_var
+				MSG_DISCO('C2:',0)
+			ELSE
+				SET_INT_REG(flexx_error_reg,1, status)
+				--WRITE('Failed to open file',CR)
+			ENDIF		
+		ELSE
+			SET_INT_REG(flexx_error_reg,1, status)	
+			MSG_DISCO('C2:',0)
+			--WRITE('Failed to connect to C2:',CR)
+		ENDIF
+	
+	END send_core_command
+
+-- GET,/devices/<string:device_id>/status,{'': ''}
+ROUTINE get_device_status(device_id : STRING)
+	
+	BEGIN 
+  		--WRITE('Device ID: ' + device_id,CR)
+  	
+  		-- Build the core command
+  		endpoint = '/devices/'+device_id+'/status'
+  		request_type = 'GET'
+  		body = '{}' 
+  	
+  		-- Send the core command
+		send_core_command(request_type, endpoint, body)
+	
+	END get_device_status
+
+--GET,/devices/<string:device_id>/variables/<string:variable_name>,{'': ''}
+ROUTINE get_device_variable(device_id : STRING; variable_name : STRING)
+	
+	BEGIN 
+  		--WRITE('Device ID: ' + device_id,CR)
+  		--WRITE('Variable Name: ' + variable_name,CR)
+  		
+  		-- Build the core command
+  		endpoint = '/devices/'+device_id+'/variables/'+variable_name
+  		request_type = 'GET'
+  		body = '{}' 
+  	
+  		-- Send the core command
+		send_core_command(request_type, endpoint, body)
+	
+	END get_device_variable
+
+--GET,/devices/<string:device_id>/parameters/<string:parameter_name>,{'': ''}
+ROUTINE get_device_parameter(device_id : STRING; parameter_name : STRING)
+	
+	BEGIN 
+  		--WRITE('Device ID: ' + device_id,CR)
+		--WRITE('Parameter Name: ' + parameter_name,CR)
+		  	
+  		-- Build the core command
+  		endpoint = '/devices/'+device_id+'/parameters/'+parameter_name
+  		request_type = 'GET'
+  		body = '{}' 
+  	
+  		-- Send the core command
+		send_core_command(request_type, endpoint, body)
+	
+	END get_device_parameter
+
+--GET,/devices/<string:device_id>/run_program,{'': ''}
+ROUTINE run_program(device_id : STRING)
+	
+	BEGIN 
+  		--WRITE('Device ID: ' + device_id,CR)
+  	
+  		-- Build the core command
+  		endpoint = '/devices/'+device_id+'/run_program'
+  		request_type = 'GET'
+  		body = '{}' 
+  	
+  		-- Send the core command
+		send_core_command(request_type, endpoint, body)
+	
+	END run_program
+
+
+--GET,/devices/<string:device_id>/files/load_file_to_memory/<string:file_name>,{'program_name': programName}
+ROUTINE load_program_to_memory(device_id : STRING; load_program_name : STRING)
+	
+	BEGIN 
+  		--WRITE('Device ID: ' + device_id,CR)
+  	
+  		-- Build the core command
+  		endpoint = '/devices/'+device_id+'/files/load_file_to_memory/'+load_program_name
+  		request_type = 'GET'
+  		body = '{"program_name": "'+load_program_name+'"}' 
+  	
+  		-- Send the core command
+		send_core_command(request_type, endpoint, body)
+	
+	END load_program_to_memory
+
+
+--GET,/parts/infeeds/infeed_index/shelf/shelf_index/parts/part_index,{'infeed_index': infeedIndex, 'shelf_index': shelfIndex, 'part_index': partIndex}
+ROUTINE get_part_index_exists(infeed_index : INTEGER; shelf_index : INTEGER; part_index : INTEGER)
+	
+	BEGIN
+
+		CNV_INT_STR(infeed_index, 1, 0, infeed_index_str)
+		CNV_INT_STR(shelf_index, 1, 0, shelf_index_str)
+		CNV_INT_STR(part_index, 1, 0, part_index_str)
+	   	
+  		-- Build the core command
+  		endpoint = '/parts/infeeds/'+infeed_index_str+'/shelf/'+shelf_index_str+'/parts/'+part_index_str
+  		request_type = 'GET'
+  		body = '{"infeed_index": "'+infeed_index_str+'", "shelf_index": "'+shelf_index_str+'", "part_index": "'+part_index_str+'"}'
+  	
+  		-- Send the core command
+		send_core_command(request_type, endpoint, body)
+	
+	END get_part_index_exists
+
+
+--GET,/parts/infeeds/infeed_index/shelf/shelf_index/parts/part_index/properties/<string:property_name>,{'infeed_index': infeedIndex, 'shelf_index': shelfIndex, 'part_index': partIndex}
+ROUTINE get_part_property(infeed_index : INTEGER; shelf_index : INTEGER; part_index : INTEGER; property_name : STRING)
+	
+	BEGIN
+		CNV_INT_STR(infeed_index, 1, 0, infeed_index_str)
+		CNV_INT_STR(shelf_index, 1, 0, shelf_index_str)
+		CNV_INT_STR(part_index, 1, 0, part_index_str)
+	   		
+  		-- Build the core command
+  		endpoint = '/parts/infeeds/'+infeed_index_str+'/shelf/'+shelf_index_str+'/parts/'+part_index_str+'/properties/'+property_name
+  		request_type = 'GET'
+  		body = '{"infeed_index": "'+infeed_index_str+'", "shelf_index": "'+shelf_index_str+'", "part_index": "'+part_index_str+'"}' 
+  	
+  		-- Send the core command
+		send_core_command(request_type, endpoint, body)
+	
+	END get_part_property
+
+
+--GET,/devices/<string:device_id>/io/do/<string:output_number>,{'': ''}
+ROUTINE get_output(device_id : STRING; output_number : STRING)
+	
+	BEGIN   		
+  		-- Build the core command
+  		endpoint = '/devices/'+device_id+'/io/do/'+output_number
+  		request_type = 'GET'
+  		body = '{}' 
+  	
+  		-- Send the core command
+		send_core_command(request_type, endpoint, body)
+	
+	END get_output
+
+--GET,/devices/<string:device_id>/io/di/<string:input_number>,{'': ''}
+ROUTINE get_input(device_id : STRING; input_number : STRING)
+	
+	BEGIN   		
+  		-- Build the core command
+  		endpoint = '/devices/'+device_id+'/io/di/'+input_number
+  		request_type = 'GET'
+  		body = '{}'
+  	
+  		-- Send the core command
+		send_core_command(request_type, endpoint, body)
+	
+	END get_input
+
+--GET,/devices/<string:device_id>/io/di/multipleInputs,{'': ''}
+ROUTINE get_multiple_inputs(device_id : STRING; inputs : STRING)
+	
+	BEGIN   		
+  		-- Build the core command
+  		endpoint = '/devices/'+device_id+'/io/di/multipleInputs'
+  		request_type = 'GET'
+  		body = '{"inputs": "'+inputs+'"}' --inputs is a comma seperated value list of inputs
+  	
+  		-- Send the core command
+		send_core_command(request_type, endpoint, body)
+	
+	END get_multiple_inputs
+
+--GET,/variables/latestValue/devices/<string:device_id>,{'variable_name': ''}
+ROUTINE get_variable_latest_value(device_id : STRING; variable_name : STRING)
+	
+	BEGIN   		
+  		-- Build the core command
+  		endpoint = '/variables/latestValue/devices/'+device_id
+  		request_type = 'GET'
+  		body = '{"name": "'+variable_name+'"}'
+  	
+  		-- Send the core command
+		send_core_command(request_type, endpoint, body)
+	
+	END get_variable_latest_value
+
+--GET,/variables/multipleLatestValues/devices/<string:device_id>,{'variable_name1': '', 'variable_name2': '', etc}
+ROUTINE get_multiple_variable_latest_values(device_id : STRING; variable_names : STRING)
+	
+	BEGIN   		
+  		-- Build the core command
+  		endpoint = '/variables/multipleLatestValues/devices/'+device_id
+  		request_type = 'GET'
+  		body = '{"names": "'+variable_names+'"}' --variable_names is a comma seperated value list of names
+  	
+  		-- Send the core command
+		send_core_command(request_type, endpoint, body)
+	
+	END get_multiple_variable_latest_values
+
+
+--PATCH,/devices/<string:device_id>/variables/<string:variable_name>,{'value': variableValue}
+ROUTINE write_variable(device_id : STRING; variable_name : STRING; variable_value : STRING)
+	
+	BEGIN 
+  		-- Build the core command
+  		endpoint = '/devices/'+device_id+'/variables/'+variable_name
+  		request_type = 'PATCH'
+  		body = '{"variable_value": "'+variable_value+'"}' 
+  	
+  		-- Send the core command
+		send_core_command(request_type, endpoint, body)
+	
+	END write_variable
+
+--PATCH,/variables/latestValue/devices/<string:device_id>,{'variable_name': '', 'latest_value': ''}
+ROUTINE set_variable_latest_value(device_id : STRING; variable_name : STRING; latest_value : STRING)
+	
+	BEGIN 
+  		-- Build the core command
+  		endpoint = '/variables/latestValue/devices/'+device_id
+  		request_type = 'PATCH'
+  		
+  		IF (latest_value = 'true') OR (latest_value = 'false') THEN
+  			body = '{"variable_name": "'+variable_name+'", "latest_value": '+latest_value+'}'
+  		ELSE
+  			body = '{"variable_name": "'+variable_name+'", "latest_value": "'+latest_value+'"}'
+  		ENDIF
+  	
+  		-- Send the core command
+		send_core_command(request_type, endpoint, body)
+	
+	END set_variable_latest_value
+
+
+--PATCH,/devices/<string:device_id>/parameters/<string:parameter_name>,{'value': parameterValue}
+ROUTINE write_parameter(device_id : STRING; parameter_name : STRING; parameter_value : STRING)
+	
+	BEGIN 
+  		-- Build the core command
+  		endpoint = '/devices/'+device_id+'/parameters/'+parameter_name
+  		request_type = 'PATCH'
+  		body = '{"parameter_value": "'+parameter_value+'"}'
+  	
+  		-- Send the core command
+		send_core_command(request_type, endpoint, body)
+	
+	END write_parameter
+
+
+--PATCH,/serializedPart/reset,{'infeed_index': infeedIndex, 'shelf_index': shelfIndex, 'part_index': partIndex}
+ROUTINE reset_part(device_id : STRING; infeed_index : INTEGER; shelf_index : INTEGER; part_index : INTEGER)
+	
+	BEGIN 
+		CNV_INT_STR(infeed_index, 1, 0, infeed_index_str)
+		CNV_INT_STR(shelf_index, 1, 0, shelf_index_str)
+		CNV_INT_STR(part_index, 1, 0, part_index_str)
+	
+  		-- Build the core command
+  		endpoint = '/parts/serializedPart/reset'
+  		request_type = 'POST'
+  		body = '{"device_id": "'+device_id+'", "infeed_index": '+infeed_index_str+', "shelf_index": '+shelf_index_str+', "part_index": '+part_index_str+'}'
+  	
+  		-- Send the core command
+		send_core_command(request_type, endpoint, body)
+	
+	END reset_part
+
+--PATCH,/parts/serializedParts/move,{'infeed_index': infeedIndex, 'shelf_index': shelfIndex, 'part_index': partIndex, 'new_infeed_index': newInfeedIndex, 'new_shelf_index': newShelfIndex, 'new_part_index': newPartIndex}
+ROUTINE move_part(device_id : STRING; infeed_index : INTEGER; shelf_index : INTEGER; part_index : INTEGER; new_infeed : INTEGER; new_shelf : INTEGER; new_part : INTEGER)
+	
+	BEGIN
+		CNV_INT_STR(infeed_index, 1, 0, infeed_index_str)
+		CNV_INT_STR(shelf_index, 1, 0, shelf_index_str)
+		CNV_INT_STR(part_index, 1, 0, part_index_str)
+		CNV_INT_STR(new_infeed, 1, 0, new_infeed_str)
+		CNV_INT_STR(new_shelf, 1, 0, new_shelf_str)
+		CNV_INT_STR(new_part, 1, 0, new_part_str)
+	 
+  		-- Build the core command
+  		endpoint = '/parts/serializedParts/move'
+  		request_type = 'PATCH'
+  		body = '{}' 
+  		--body = '{"device_id": "'+device_id+'", "infeed_index": '+infeed_index_str+', "shelf_index": '+shelf_index_str+', "part_index": '+part_index_str+
+  		--', "new_infeed_index": '+new_infeed_str+', "new_shelf_index": '+new_shelf_str+', "new_part_index": '+new_part_str+'}'
+  	
+  		-- Send the core command
+		send_core_command(request_type, endpoint, body)
+	
+	END move_part
+
+-- PATCH,/devices/<string:device_id>/status/<string:status>,{'': ''}
+ROUTINE set_device_status(device_id : STRING; status : STRING)
+	
+	BEGIN 
+  		--WRITE('Device ID: ' + device_id,CR)
+  	
+  		-- Build the core command
+  		endpoint = '/devices/'+device_id+'/status/'+status
+  		request_type = 'PATCH'
+  		body = '{}'  
+  	
+  		-- Send the core command
+		send_core_command(request_type, endpoint, body)
+	
+	END set_device_status
+
+-- PATCH,/infeeds/selectedPart/stage,{'': ''}
+ROUTINE stage_selected_part(infeed_idx : INTEGER; shelf_idx : INTEGER; part_idx : INTEGER)
+	
+	BEGIN 
+  		CNV_INT_STR(infeed_idx, 1, 0, infeed_index_str)
+		CNV_INT_STR(shelf_idx, 1, 0, shelf_index_str)
+		CNV_INT_STR(part_idx, 1, 0, part_index_str)
+  	
+  		-- Build the core command
+  		endpoint = '/infeeds/selectedPart/stage'
+  		request_type = 'PATCH'
+  		--body = '{"infeedIndex": '+infeed_index_str+', "shelfIndex": '+shelf_index_str+', "partIndex": '+part_index_str+'}'
+  		body = '{}'
+  	
+  		-- Send the core command
+		send_core_command(request_type, endpoint, body)
+	
+	END stage_selected_part
+
+--POST,/devices/<string:device_id>/io/do/<string:output_number>,{'values': 1}
+ROUTINE set_output(device_id : STRING; output_number : STRING; output_state : STRING)
+	
+	BEGIN 
+  		-- Build the core command
+  		endpoint = '/devices/'+device_id+'/io/do/'+output_number
+  		request_type = 'POST'
+  		body = '{"values": '+output_state+'}' 
+  	
+  		-- Send the core command
+		send_core_command(request_type, endpoint, body)
+	
+	END set_output
+
+--POST,/devices/<string:device_id>/execute_command/<string:command_name>,{'arg': 'arg', 'arg2': 'arg2'}
+
+
+--POST,/runRecords/events/status,{'status': status, 'device_id': deviceId}
+ROUTINE status_event(device_id : STRING; status : STRING)
+	
+	BEGIN 
+  		-- Build the core command
+  		endpoint = '/runRecords/events/status'
+  		request_type = 'POST'
+  		body = '{"device_id": "'+device_id+'", "status": "'+status+'"}' 
+  	
+  		-- Send the core command
+		send_core_command(request_type, endpoint, body)
+	
+	END status_event
+
+--POST,/runRecords/events/label,{'label': label, 'device_id': deviceId}
+ROUTINE label_event(device_id : STRING; label : STRING)
+	
+	BEGIN 
+  		-- Build the core command
+  		endpoint = '/runRecords/events/label'
+  		request_type = 'POST'
+  		body = '{"device_id": "'+device_id+'", "label": "'+label+'"}'
+  	
+  		-- Send the core command
+		send_core_command(request_type, endpoint, body)
+	
+	END label_event
+
+--POST,/runRecords/events/pick,{'infeed_index': infeedIndex, 'shelf_index': shelfIndex, 'part_index': partIndex, 'device_id': deviceId, 'fixture_index': fixtureIndex}
+ROUTINE pick_event(device_id : STRING; infeed_index : INTEGER; shelf_index : INTEGER; part_index : INTEGER; fixture_index : INTEGER; suppress_cycle : STRING)
+	
+	BEGIN
+		CNV_INT_STR(infeed_index, 1, 0, infeed_index_str)
+		CNV_INT_STR(shelf_index, 1, 0, shelf_index_str)
+		CNV_INT_STR(part_index, 1, 0, part_index_str)
+		CNV_INT_STR(fixture_index, 1, 0, fixture_index_str)
+	 
+  		-- Build the core command
+  		endpoint = '/runRecords/events/pick'
+  		request_type = 'POST'
+  		body = '{"device_id": "'+device_id+'", "fixture_index": '+fixture_index_str+', "infeed_index": '+infeed_index_str+', "shelf_index": '+shelf_index_str+', "part_index": '+part_index_str+', "suppress_cycle": "'+suppress_cycle+'"}'
+  	
+  		-- Send the core command
+		send_core_command(request_type, endpoint, body)
+	
+	END pick_event
+
+
+--POST,/runRecords/events/place,{'infeed_index': infeedIndex, 'shelf_index': shelfIndex,  'part_index': partIndex, 'device_id': deviceId, 'fixture_index': fixtureIndex}
+ROUTINE place_event(device_id : STRING; infeed_index : INTEGER; shelf_index : INTEGER; part_index : INTEGER; fixture_index : INTEGER; suppress_cycle : STRING)
+	
+	BEGIN
+		CNV_INT_STR(infeed_index, 1, 0, infeed_index_str)
+		CNV_INT_STR(shelf_index, 1, 0, shelf_index_str)
+		CNV_INT_STR(part_index, 1, 0, part_index_str)
+		CNV_INT_STR(fixture_index, 1, 0, fixture_index_str)
+	 
+  		-- Build the core command
+  		endpoint = '/runRecords/events/place'
+  		request_type = 'POST'
+  		body = '{"device_id": "'+device_id+'", "fixture_index": '+fixture_index_str+', "infeed_index": '+infeed_index_str+', "shelf_index": '+shelf_index_str+', "part_index": '+part_index_str+', "suppress_cycle": "'+suppress_cycle+'"}' 
+  	
+  		-- Send the core command
+		send_core_command(request_type, endpoint, body)
+	
+	END place_event
+
+
+--POST,/runRecords/events/partCount,{'infeed_index': infeedIndex, 'shelf_index': shelfIndex, 'part_index': partIndex, 'device_id': deviceId}
+ROUTINE part_count(device_id : STRING; infeed_index : INTEGER; shelf_index : INTEGER; part_index : INTEGER)
+	
+	BEGIN
+		CNV_INT_STR(infeed_index, 1, 0, infeed_index_str)
+		CNV_INT_STR(shelf_index, 1, 0, shelf_index_str)
+		CNV_INT_STR(part_index, 1, 0, part_index_str)
+	 
+  		-- Build the core command
+  		endpoint = '/runRecords/events/partCount'
+  		request_type = 'POST'
+  		body = '{"device_id": "'+device_id+'", "infeed_index": '+infeed_index_str+', "shelf_index": '+shelf_index_str+', "part_index": '+part_index_str+'}' 
+  	
+  		-- Send the core command
+		send_core_command(request_type, endpoint, body)
+		
+	END part_count
+
+--POST,/runRecords/events/failureCount,{'failure_reason': failureReason, 'infeed_index': infeedIndex, 'shelf_index': shelfIndex, 'part_index': partIndex, 'device_id': deviceId}
+ROUTINE failure_count(device_id : STRING; failure_reason : STRING; infeed_index : INTEGER; shelf_index : INTEGER; part_index : INTEGER)
+	
+	BEGIN 
+		CNV_INT_STR(infeed_index, 1, 0, infeed_index_str)
+		CNV_INT_STR(shelf_index, 1, 0, shelf_index_str)
+		CNV_INT_STR(part_index, 1, 0, part_index_str)
+	
+  		-- Build the core command
+  		endpoint = '/runRecords/events/failureCount'
+  		request_type = 'POST'
+  		body = '{"device_id": "'+device_id+'", "failure_reason": "'+failure_reason+'", "infeed_index": '+infeed_index_str+', "shelf_index": '+shelf_index_str+', "part_index": '+part_index_str+'}' 
+  	
+  		-- Send the core command
+		send_core_command(request_type, endpoint, body)
+	
+	END failure_count
+
+--POST,/runRecords/events/analog,{'infeed_index': infeedIndex, 'shelf_index': shelfIndex, 'part_index': partIndex, 'variable_name': variableName, 'value': variableValue, 'device_id': deviceId}
+ROUTINE analog_event(device_id : STRING; variable_name : STRING; variable_value : STRING; infeed_index : INTEGER; shelf_index : INTEGER; part_index : INTEGER)
+	
+	BEGIN 
+		CNV_INT_STR(infeed_index, 1, 0, infeed_index_str)
+		CNV_INT_STR(shelf_index, 1, 0, shelf_index_str)
+		CNV_INT_STR(part_index, 1, 0, part_index_str)
+	
+  		-- Build the core command
+  		endpoint = '/runRecords/events/analog'
+  		request_type = 'POST'
+  		body = '{"device_id": "'+device_id+'", "variable_name": "'+variable_name+'", "variable_value": "'+variable_value+'", "infeed_index": '+infeed_index_str+', "shelf_index": '+shelf_index_str+', "part_index": '+part_index_str+'}'
+  	
+  		-- Send the core command
+		send_core_command(request_type, endpoint, body)
+	
+	END analog_event
+
+--POST,/runRecords/events/digital,{'infeed_index': infeedIndex, 'shelf_index': shelfIndex, 'part_index': partIndex, 'variable_name': variableName,'value': variableValue, 'device_id': deviceId}
+ROUTINE digital_event(device_id : STRING; variable_name : STRING; variable_value : STRING; infeed_index : INTEGER; shelf_index : INTEGER; part_index : INTEGER)
+	
+	BEGIN 
+		CNV_INT_STR(infeed_index, 1, 0, infeed_index_str)
+		CNV_INT_STR(shelf_index, 1, 0, shelf_index_str)
+		CNV_INT_STR(part_index, 1, 0, part_index_str)
+	
+  		-- Build the core command
+  		endpoint = '/runRecords/events/digital'
+  		request_type = 'POST'
+  		body = '{"device_id": "'+device_id+'", "variable_name": "'+variable_name+'", "variable_value": "'+variable_value+'", "infeed_index": '+infeed_index_str+', "shelf_index": '+shelf_index_str+', "part_index": '+part_index_str+'}' 
+  	
+  		-- Send the core command
+		send_core_command(request_type, endpoint, body)
+	
+	END digital_event
+
+--POST,/runRecords/events/string,{'infeed_index': infeedIndex, 'shelf_index': shelfIndex, 'part_index': partIndex, 'variable_name': variableName, , 'value': variableValue, 'device_id': deviceId}
+ROUTINE string_event(device_id : STRING; variable_name : STRING; variable_value : STRING; infeed_index : INTEGER; shelf_index : INTEGER; part_index : INTEGER)
+	
+	BEGIN
+		CNV_INT_STR(infeed_index, 1, 0, infeed_index_str)
+		CNV_INT_STR(shelf_index, 1, 0, shelf_index_str)
+		CNV_INT_STR(part_index, 1, 0, part_index_str)
+	 
+  		-- Build the core command
+  		endpoint = '/runRecords/events/string'
+  		request_type = 'POST'
+  		body = '{"device_id": "'+device_id+'", "variable_name": "'+variable_name+'", "variable_value": "'+variable_value+'", "infeed_index": '+infeed_index_str+', "shelf_index": '+shelf_index_str+', "part_index": '+part_index_str+'}'
+  	
+  		-- Send the core command
+		send_core_command(request_type, endpoint, body)
+	
+	END string_event
+
+--POST,/alarms/{status},{'device_id': device_id, 'order': order}
+ROUTINE generate_alarm(device_id : STRING; order : STRING; alarm: STRING)
+	
+	BEGIN	 
+  		-- Build the core command
+  		endpoint = '/alarms/'+alarm
+  		request_type = 'POST'
+  		body = '{"device_id": "'+device_id+'", "order": "'+order+'"}'
+  	
+  		-- Send the core command
+		send_core_command(request_type, endpoint, body)
+	
+	END generate_alarm
+				
+ROUTINE get_selected_part(include_infeed : STRING; include_shelf : STRING; include_part : STRING)
+
+	BEGIN
+
+	  	-- Build the core command
+		endpoint = '/infeeds/selectedPart'
+  		request_type = 'GET'
+
+  	  	body = '{'
+		IF include_infeed = 'True' THEN
+			body = body + '"infeedIndex": "' + include_infeed + '"'
+		ENDIF 
+		IF include_shelf = 'True' THEN
+			body = body + '"shelfIndex": "' + include_shelf + '"'
+		ENDIF 
+		IF include_part = 'True' THEN
+			body = body + '"partIndex": "' + include_part + '"'
+		ENDIF 
+		body = body + '}'
+
+		-- Send the core command
+		send_core_command(request_type, endpoint, body)
+
+	END get_selected_part
+
+-- /devices/<string:device_id>/execute_command/<string:command_name>,{'arg': 'arg', 'arg2': 'arg2'}		
+ROUTINE index_yaskawa_motor(device_id: STRING; part_index : INTEGER)
+	
+	BEGIN
+	    CNV_INT_STR(part_index, 1, 0, part_index_str)
+	
+		-- Build the core command
+		endpoint = '/devices/'+device_id+'/execute_command/set_carousel_index'
+  		request_type = 'POST'
+		body = '{"index": '+part_index_str+'}'
+		
+		-- Send the core command
+		send_core_command(request_type, endpoint, body)
+	
+	END index_yaskawa_motor
+
+
+-- DELETE,/serializedParts/infeeds/<string:infeed_index>/shelf/<string:shelf_index>/part/<string:part_index>,{'': ''}
+ROUTINE clear_selected_part(infeed_idx : INTEGER; shelf_idx : INTEGER; part_idx : INTEGER)
+	
+	BEGIN 
+  		CNV_INT_STR(infeed_idx, 1, 0, infeed_index_str)
+		CNV_INT_STR(shelf_idx, 1, 0, shelf_index_str)
+		CNV_INT_STR(part_idx, 1, 0, part_index_str)
+  	
+  		-- Build the core command
+  		endpoint = '/parts/serializedParts/infeeds/infeed_index/shelf/shelf_index/part/part_index'
+  		body = '{"infeed_index": "'+infeed_index_str+'", "shelf_index": "'+shelf_index_str+'", "part_index": "'+part_index_str+'"}'
+  		request_type = 'DEL'
+  	
+  		-- Send the core command
+		send_core_command(request_type, endpoint, body)
+	
+	END clear_selected_part
+
+-- GET /parts/infeeds/<string:infeed_index>/shelf/<string:shelf_index>/startingPartIndex/<string:part_index>
+ROUTINE get_next_part(infeed_idx : INTEGER; shelf_idx : INTEGER; part_idx : INTEGER)
+
+	BEGIN
+	  	CNV_INT_STR(infeed_idx, 1, 0, infeed_index_str)
+		CNV_INT_STR(shelf_idx, 1, 0, shelf_index_str)
+		CNV_INT_STR(part_idx, 1, 0, part_index_str)
+
+		-- Build the core command
+		endpoint = '/parts/infeeds/infeed_index/shelf/shelf_index/startingPartIndex/part_index'
+  		body = '{"infeed_index": "'+infeed_index_str+'", "shelf_index": "'+shelf_index_str+'", "part_index": "'+part_index_str+'"}'
+		request_type = 'GET'
+		  	
+		-- Send the core command
+		send_core_command(request_type, endpoint, body)
+
+	END get_next_part
+
+ROUTINE automation_stop
+	BEGIN
+		cnc_1_active = 'false'
+		cnc_2_active = 'false'
+		cnc_3_active = 'false'
+		cnc_4_active = 'false'
+		cnc_5_active = 'false'
+		cnc_6_active = 'false'
+		carousel_active = 'false'
+	END automation_stop
+
+ROUTINE index_carousel(part_idx : INTEGER)
+	BEGIN
+		IF carousel_active = 'false' THEN
+			GO TO INDEX_CAROUSEL_EXIT
+		ENDIF
+
+    	GET_STR_REG(19, yaskawa_device_id, status) -- yaskawa motor ID
+		index_yaskawa_motor(yaskawa_device_id, part_idx)
+
+		INDEX_CAROUSEL_EXIT::
+	END index_carousel
+	
+
+ROUTINE wait_for_carousel
+	BEGIN
+		carousel_fail_cnt = 0
+		CAROUSEL_LOOP::
+		get_device_status(yaskawa_device_id)
+		GET_STR_REG(1, carousel_status, status)
+		IF carousel_status <> 'IDLE' THEN
+			IF carousel_status = 'ERROR' THEN
+				automation_stop
+				GO TO CAROUSEL_EXIT
+			ENDIF
+			carousel_fail_cnt = carousel_fail_cnt + 1
+			IF carousel_fail_cnt > 600 THEN -- 60 secs
+				CALL_PROGLIN('SAFE_POS_ODD', 0, status, FALSE)
+				automation_stop -- SET EVERYTHING TO INACTIVE
+				set_device_status(robot_device_id, 'CAROUSEL_TIMEOUT')
+				GO TO CAROUSEL_EXIT
+			ENDIF
+			DELAY(100)
+			GO TO CAROUSEL_LOOP
+		ENDIF
+		CAROUSEL_EXIT::
+	END wait_for_carousel
+
+ROUTINE wash_part : INTEGER
+
+	BEGIN
+		CALL_PROGLIN('WASH_STATION', 0, status, FALSE)
+
+		GET_REG(4, FALSE, wash_cycle_cnt, real_value, status)
+		wash_cycle_cnt = wash_cycle_cnt + 1
+		SET_INT_REG(4, wash_cycle_cnt, status)
+		CNV_INT_STR(wash_cycle_cnt, 1, 0, ultrasonic_cycles_str)
+		set_variable_latest_value(robot_device_id, 'ultrasonic_cycles', ultrasonic_cycles_str)
+
+		SET_INT_REG(10,gripper_shelf_idx,status) -- Set active shelf to gripper shelf index
+		index_carousel(gripper_part_idx)
+		IF carousel_active = 'false' THEN
+				RETURN (1)
+		ENDIF
+		CALL_PROGLIN('SAFE_POS_ODD', 0, status, FALSE)
+		wait_for_carousel
+
+		SET_INT_REG(98,1,status) -- SET LOADING CAROUSEL FLAG
+		IF gripper_shelf_idx = 0 THEN
+			CALL_PROGLIN('LOAD_SHELF_1', 0, status, FALSE)
+		ENDIF
+		IF gripper_shelf_idx = 1 THEN
+			CALL_PROGLIN('LOAD_SHELF_2', 0, status, FALSE)
+			part_count(robot_device_id, infeed_idx, gripper_shelf_idx, gripper_part_idx)
+		ENDIF
+		IF gripper_shelf_idx = 2 THEN
+			CALL_PROGLIN('LOAD_SHELF_3', 0, status, FALSE)
+		ENDIF
+		IF gripper_shelf_idx = 3 THEN
+			CALL_PROGLIN('LOAD_SHELF_4', 0, status, FALSE)
+			part_count(robot_device_id, infeed_idx, gripper_shelf_idx, gripper_part_idx)
+		ENDIF
+		IF gripper_shelf_idx = 4 THEN
+			CALL_PROGLIN('LOAD_SHELF_5', 0, status, FALSE)
+			part_count(robot_device_id, infeed_idx, gripper_shelf_idx, gripper_part_idx)
+		ENDIF
+		IF gripper_shelf_idx = 5 THEN
+			CALL_PROGLIN('LOAD_SHELF_6', 0, status, FALSE)
+			part_count(robot_device_id, infeed_idx, gripper_shelf_idx, gripper_part_idx)
+		ENDIF
+		RETURN (0)
+	END wash_part
+
+BEGIN
+END FLEXX_CORE_COMMAND
+
