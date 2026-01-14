@@ -8,6 +8,12 @@
 
 ---
 
+<p align="center">
+  <img src="Documentation/Flexxbotics_Logo.png"
+       alt="Flexxbotics Logo"
+       style="width: 100%; max-width: 800px;" />
+</p>
+
 ## Overview
 
 This repository is home to **open-source industrial transformers** compatible with **FlexxCore**, the runtime platform at the core of the **Flexxbotics Smart Factory and Workcell Automation system**.
@@ -112,3 +118,10 @@ Machine model definitions specify:
 │    FlexxCore Device    │
 │           API          │
 └────────────────────────┘
+```
+
+## Tags / Keywords
+
+industrial automation · robotics · workcell automation · CNC · PLC · CMM ·  
+industrial protocols · factory automation · robot integration ·  
+FlexxCore · Flexxbotics · Python automation
