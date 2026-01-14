@@ -1,0 +1,175 @@
+PROGRAM FLEXX_GET_STATE
+%SYSTEM
+%NOLOCKGROUP
+%ENVIRONMENT TIM
+%ENVIRONMENT REGOPE
+
+VAR
+	-- File variables 
+	sts : INTEGER
+	file1 : FILE
+	real_value : REAL
+	
+	-- Logic variables
+	prg_status : BOOLEAN
+	estop : BOOLEAN
+	fault : BOOLEAN
+	teach : BOOLEAN
+	status_cnt : INTEGER
+	prev_status : STRING[254]
+	
+	-- Local variables
+	status : STRING[254]
+	serial_no : INTEGER
+	entry, status_2 : INTEGER
+	
+	-- Shared variables from flexx_set_label.kl
+	label FROM FLEXX_SET_LABEL : STRING[254]
+	
+	-- Shared variables from flexx_set_status.kl 
+	robot_status FROM FLEXX_SET_STATUS : STRING[254]
+	use_custom_status FROM FLEXX_SET_STATUS : INTEGER 
+	
+	-- Shared variables from flexx_set_cycle_end.kl
+	cycle_end FROM FLEXX_SET_CYCLE_END : INTEGER 
+	cycle_time FROM FLEXX_SET_CYCLE_END: INTEGER
+	
+	-- Shared variables from flexx_set_failure_count.kl
+	failure_count FROM FLEXX_SET_FAILURE_COUNT: INTEGER 
+	failure_reason FROM FLEXX_SET_FAILURE_COUNT: STRING[254]
+	
+	-- Shared variables from flexx_set_part_count.kl
+	part_count FROM FLEXX_SET_PART_COUNT: INTEGER
+	
+	-- Shared variables from flexx_set_cycle_start.kl
+	cycle_start FROM FLEXX_SET_CYCLE_START: INTEGER
+	
+-- Routines
+ROUTINE check_init
+	BEGIN
+	    IF UNINIT(robot_status) THEN
+	    	robot_status = 'IDLE'
+	    ENDIF
+
+	    IF UNINIT(use_custom_status) THEN
+	    	use_custom_status = 0
+	    ENDIF
+	    
+	    IF UNINIT(label) THEN
+	    	label = ''
+	    ENDIF
+	    
+	    IF UNINIT(cycle_end) THEN
+	   		cycle_end = 0
+	    ENDIF
+	    
+	   	IF UNINIT(cycle_time) THEN
+	   		cycle_time = 0
+	    ENDIF
+	    
+	    IF UNINIT(failure_count) THEN
+	   		failure_count = 0
+	    ENDIF
+	    
+	    IF UNINIT(failure_reason) THEN
+	    	robot_status = ''
+	    ENDIF
+	    
+	    IF UNINIT(part_count) THEN
+	   		part_count = 0
+	    ENDIF
+	    
+	    IF UNINIT(cycle_start) THEN
+	    	cycle_start = 0
+	    ENDIF
+	    
+	    IF UNINIT(status_cnt) THEN
+	    	status_cnt = 0
+	    ENDIF
+    
+	END check_init
+	
+ROUTINE write_json
+	BEGIN
+		WRITE file1 ('{', CR)
+	       WRITE file1 ('"status" : "', status, '",', CR)
+	       WRITE file1 ('"cycle_end" : "', cycle_end, '",', CR)
+	       WRITE file1 ('"cycle_time" : "', cycle_time, '",', CR)
+	       WRITE file1 ('"failure_count" : "', failure_count, '",', CR)
+	       WRITE file1 ('"part_count" : "', part_count, '",', CR)
+	       WRITE file1 ('"label" : "', label, '",', CR)
+	       WRITE file1 ('"serial" : "', serial_no, '",', CR)
+	       WRITE file1 ('"failure_reason" : "', label, '"', CR)
+	       WRITE file1 ('}', CR)
+	END write_json
+	
+-- Statuses:
+--	RUNNING *
+--	FREEDRIVE
+--	IDLE *
+--	FAULT *
+--	PROTECTIVE_STOP
+--	ROBOT_EMERGENCY_STOP *
+--	REDUCED
+--	ROBOT_DISCONNECTED
+
+-- 10/11/2024 7:17:45 1498126902
+-- 10/11/2024 7:25:25 1498127146
+ROUTINE get_run_status
+	BEGIN
+		prg_status = OPOUT[18] -- RUNNING / IDLE
+		estop = TPIN[250] -- ROBOT_EMERGENCY_STOP
+		fault = OPOUT[21] -- FAULT
+		teach = OPOUT[23] -- TP ENABLED
+
+		IF prg_status THEN
+			status_cnt = status_cnt + 1
+			IF status_cnt > 3 THEN
+				status = 'RUNNING'
+				status_cnt = 0
+			ENDIF
+		ELSE
+			status_cnt = 0
+			status = 'IDLE'
+		ENDIF
+		
+		IF fault THEN
+			status = 'FAULT'
+		ENDIF
+		
+		IF teach THEN
+			status = 'TEACH_PENDANT_MODE'
+		ENDIF
+		
+		IF estop THEN
+			status = 'ROBOT_EMERGENCY_STOP'
+		ENDIF
+		
+		GET_REG(9, FALSE, use_custom_status, real_value, sts)
+		IF (use_custom_status = 1) THEN
+			GET_STR_REG(9, status, sts)
+		ENDIF
+		
+	END get_run_status
+BEGIN
+	
+    OPEN FILE file1 ('RW', 'TD:RESPONSE.HTM')
+    sts = IO_STATUS(file1)
+	
+	IF sts = 0 THEN
+	
+		GET_VAR(entry, '*SYSTEM*', '$DCSS_CCSCB[1].$SERIAL_NO', serial_no, status_2)
+		
+		IF status_2 <> 0 THEN
+			serial_no = 0
+		ENDIF
+		
+		check_init
+		get_run_status
+		write_json
+		
+	ENDIF
+   	
+   	CLOSE FILE file1
+	
+END FLEXX_GET_STATE
