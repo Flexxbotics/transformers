@@ -3,6 +3,6 @@
   "controller": "Flexxbotics",
   "manufacturer": "Flexxbotics",
   "machineModel": "Flexxbotics",
-  "transformer": "Workcell",
+  "transformer": "WorkCell",
   "type": "PLC"
 }

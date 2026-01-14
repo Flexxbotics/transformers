@@ -1,17 +1,17 @@
 """
-    Copyright 2025 Flexxbotics, Inc.
+    :copyright: (c) 2022-2024, Flexxbotics, a Delaware corporation (the "COMPANY")
+        All rights reserved.
 
-    Licensed under the Apache License, Version 2.0 (the "License");
-    you may not use this file except in compliance with the License.
-    You may obtain a copy of the License at
-
-        http://www.apache.org/licenses/LICENSE-2.0
-
-    Unless required by applicable law or agreed to in writing, software
-    distributed under the License is distributed on an "AS IS" BASIS,
-    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-    See the License for the specific language governing permissions and
-    limitations under the License.
+        THIS SOFTWARE IS PROVIDED BY THE COMPANY ''AS IS'' AND ANY
+        EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+        WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+        DISCLAIMED. IN NO EVENT SHALL THE COMPANY BE LIABLE FOR ANY
+        DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+        (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+        LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+        ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+        (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+        SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """
 
 # 3rd party python library imports
@@ -22,10 +22,13 @@ from data_models.device import Device
 from transformers.abstract_device import AbstractDevice
 
 
-class WorkcellTransformer(AbstractDevice):
+class WorkCell(AbstractDevice):
     """
-    This is an example of a workcell transformer which utilizes multiple devices to reconcile things like
-    the workcell status, trigger restarts, trigger controls or perform other advanced tasks.
+    The trasnformer for the workcell
+
+    :author:    tylerjm@flexxbotics.com
+
+    :since:     Q.5 (7.1.17.5)
     """
 
     # ############################################################################## #
@@ -49,7 +52,7 @@ class WorkcellTransformer(AbstractDevice):
         devices = self._device_service.get_devices()
 
         self.GREEN_STACK_LIGHT = 9
-        self.YELLOW_STACK_LIGHT = 11
+        self.YELLOW_STACK_LIGHT = 111
         self.RED_STACK_LIGHT = 13
         self.CAROUSEL_RED_STACK_LIGHT = 52
         self.CAROUSEL_YELLOW_STACK_LIGHT = 53
@@ -78,6 +81,10 @@ class WorkcellTransformer(AbstractDevice):
         Method to read the status of the device on an interval
 
         :return:    status - string
+
+        :author:    tylerjm@flexxbotics.com
+
+        :since:     Q.5 (7.1.17.5)
         """
         pass
 
@@ -90,6 +97,9 @@ class WorkcellTransformer(AbstractDevice):
 
         :return:    status - string
 
+        :author:    tylerjm@flexxbotics.com
+
+        :since:     Q.5 (7.1.17.5)
         """
         # Robot status
         robot_status = self._device_service.read_status(device_id=self.robot_id)
@@ -153,7 +163,7 @@ class WorkcellTransformer(AbstractDevice):
             input_reponse = self._device_service.execute_command_v2(device_id=self.robot_id, command_name="READ_DIGITAL_INPUT", command_args={"input_number": input_number}, receive_json=True)
             input_result = input_reponse["result"]
             # perform auto restart
-            if robot_status == "FAULT" and input_result:
+            if robot_status == "FAULT" and input_result: #TODO and the robot is in the machine
                 self._info(message="Detected auto restart robot for stopped in cnc")
                 time.sleep(1)
                 self._device_service.execute_command_v2(device_id=self.robot_id, command_name="RESTART_ROBOT", command_args="{}")
