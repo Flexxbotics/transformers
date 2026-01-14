@@ -39,6 +39,28 @@ Flexxbotics Transformers enable **many-to-many interoperability** across heterog
 
 ---
 
+## What You Can Do
+
+- Connect machines to robots and other automation
+- Create multi-machine automation cells
+- Program your own machine-to-automation transformers
+- Get, use, modify, and redistribute transformers
+
+---
+
+## What You’ll Find in This Repository
+
+- Open source equipment transformers for use with Flexxbotics software
+- Example of a base **Transformer Template** for creating your own transformer
+- Example of a **Workcell Transformer**, which embeds multiple transformers to:
+  - Reconcile workcell state  
+  - Perform automatic restarts  
+  - Run threaded controls  
+  - Provide many additional advanced capabilities
+- Example an **Automation Script** callable from the Flexxbotics HMI Controls Configurator or run in realtime that can communicate with transformers to perform automation tasks.
+
+---
+
 ## Key Characteristics
 
 - Transformers are **loaded into the Flexxbotics runtime** to operate
@@ -49,7 +71,7 @@ Flexxbotics Transformers enable **many-to-many interoperability** across heterog
 
 ---
 
-## Core FlexxCore Concepts (Developer Guide Aligned)
+## FlexxCore Concepts
 
 FlexxCore is built around **Devices** and **Transformers**, with supporting concepts such as **Machine Models**, **Protocols**, **Extensions**, **Adapters**, and **Scripts**.
 
@@ -126,6 +148,17 @@ Machine model definitions specify:
 │           API          │
 └────────────────────────┘
 ```
+
+## License
+
+These open-source transformers are released under the **Apache 2.0 License**.  
+You are not required to contribute modifications back, though the community always appreciates improvements that advance capabilities.
+
+## Feedback
+
+Let us know what you like about Flexxbotics Transformers—we want to hear from you.  
+Even more importantly, tell us what you don’t like or what you’d like to see next. Your feedback and innovative ideas help shape the roadmap.
+
 
 ## Tags / Keywords
 
