@@ -123,5 +123,5 @@ Machine model definitions specify:
 ## Tags / Keywords
 
 industrial automation · robotics · workcell automation · CNC · PLC · CMM ·  
-industrial protocols · factory automation · robot integration ·  
+industrial protocols · factory automation · smart factory · robot integration ·  
 FlexxCore · Flexxbotics · Python automation
