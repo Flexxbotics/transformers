@@ -61,7 +61,7 @@ Flexxbotics Transformers enable **many-to-many interoperability** across heterog
   
 | Name | Description | Directory |
 |------|------------|------|
-| OPC UA | Protocol definition for communication with OPC-UA servers | opcua.py |
+| OPC UA | Protocol definition for communication with OPC-UA servers | Protocols/opcua.py |
 | MTConnect | Protocol definition for communication with MTConnect agents | Protocols/mtconnect.py |
 | MQTT | Protocol definition for communication with MQTT brokers | Protocols/mqtt.py |
 | TCP/IP | Protocol definition for TCP/IP socket communication | Protocols/tcp.py |
