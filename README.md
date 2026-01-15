@@ -59,34 +59,34 @@ Flexxbotics Transformers enable **many-to-many interoperability** across heterog
 - Examples of **Automation Scripts** callable from the Flexxbotics HMI Controls Configurator or run in realtime that can communicate with transformers to perform automation tasks.
 - **Open source equipment transformers** for use with Flexxbotics software:
   
-| Name | Description | File |
+| Name | Description | Directory |
 |------|------------|------|
 | OPC UA | Protocol definition for communication with OPC-UA servers | opcua.py |
-| MTConnect | Protocol definition for communication with MTConnect agents | mtconnect.py |
-| MQTT | Protocol definition for communication with MQTT brokers | mqtt.py |
-| TCP/IP | Protocol definition for TCP/IP socket communication | tcp.py |
-| Modbus-TCP | Protocol definition for communication with Modbus-TCP enabled devices | modbus.py |
-| Siemens S7comm | Protocol definition for communication with S7comm based Siemens PLCs | siemens_s7comm.py |
-| Allen Bradley EIP-Logix | Protocol definition for communication with EIP-Logix based Allen Bradley PLCs | allen_bradley_eip-logix.py |
-| Beckhoff ADS Twincat | Protocol definition for communication with ADS Twincat based Beckhoff PLCs | beckhoff_ads_twincat.py |
-| Serial | Protocol definition for communication with serial devices | serial.py |
-| Universal Robots | Connector driver for all models of the Universal Robot 6-axis robotic arms | ur.py |
-| FANUC Robots | Connector driver for all models of FANUC 6-axis robotic arms (industrial & collaborative) | fanuc.py |
-| Haas Next Gen (NGC) | Connector driver for all models of Haas machines using the Next Gen Controller | haas_next_gen.py |
-| Haas Serial | Connector driver for all models of Haas machines using the legacy controller | haas_serial.py |
-| FOCAS2 | Connector driver for all machines using I-Series FANUC-based controllers | focas2.py |
-| Heidenhain TNC | Connector driver for TNCRemo support for Heidenhain TNC-based controllers | heidenhain_tnc530.py |
+| MTConnect | Protocol definition for communication with MTConnect agents | Protocols/mtconnect.py |
+| MQTT | Protocol definition for communication with MQTT brokers | Protocols/mqtt.py |
+| TCP/IP | Protocol definition for TCP/IP socket communication | Protocols/tcp.py |
+| Modbus-TCP | Protocol definition for communication with Modbus-TCP enabled devices | Protocols/modbus.py |
+| Siemens S7comm | Protocol definition for communication with S7comm based Siemens PLCs | Protocols/siemens_s7comm.py |
+| Allen Bradley EIP-Logix | Protocol definition for communication with EIP-Logix based Allen Bradley PLCs | Protocols/allen_bradley_eip-logix.py |
+| Beckhoff ADS Twincat | Protocol definition for communication with ADS Twincat based Beckhoff PLCs | Protocols/beckhoff_ads_twincat.py |
+| Serial | Protocol definition for communication with serial devices | Protocols/serial.py |
+| Universal Robots | Connector driver for all models of the Universal Robot 6-axis robotic arms | Transformers/Robots/UniversalRobots |
+| FANUC Robots | Connector driver for all models of FANUC 6-axis robotic arms (industrial & collaborative) | Transformers/Robots/Fanuc |
+| Haas Next Gen (NGC) | Connector driver for all models of Haas machines using the Next Gen Controller | Transformers/CNCs/Haas |
+| Haas Serial | Connector driver for all models of Haas machines using the legacy controller | Transformers/CNCs/Haas |
+| Fanuc FOCAS2 | Connector driver for all machines using I-Series FANUC-based controllers | Transformers/CNCs/Fanuc CNC |
+| Heidenhain TNC | Connector driver for TNCRemo support for Heidenhain TNC-based controllers | Transformers/CNCs/Heidenhain |
 | Yaskawa | Connector driver for Modbus-TCP enabled communication with Yaskawa MP2600 motor controllers | yaskawa_mp2600.py |
-| Okuma | Connector driver for Okuma OSP300 and later controllers | okuma.py |
-| Hexagon | Connector driver for Hexagon CMMs | hexagon.py |
-| Keyence Telecentric | Connector driver for Keyence telecentric measurement devices | keyence_telecentric.py |
-| Keyence Profiler | Connector driver for Keyence profile sensors | keyence_profiler.py |
-| COGNEX | Connector driver for Modbus-TCP enabled communication with Cognex In-Sight cameras | cognex_camera.py |
-| TRUMPF Laser Marker | Connector driver for Trumpf laser markers | trumpf_laser.py |
-| FOBA | Connector driver for the M-Series FOBA lasers with Mark-US TCP interface | foba.py |
-| SICK | Connector driver for the SICK FlexiCompact safety PLC | flexi_compact.py |
-| WAGO | Connector driver for Modbus-TCP enabled communication with Wago I/O blocks | wago.py |
-| Sturtevant Richmont | Connector driver for the Sturtevant Richmont Global400 torque controller interface | global400.py |
+| Okuma | Connector driver for Okuma OSP300 and later controllers | Transformers/CNCs/Okuma |
+| Hexagon | Connector driver for Hexagon CMMs | Transformers/CMMs/Hexagon |
+| Keyence Telecentric | Connector driver for Keyence telecentric measurement devices | Transformers/Inspection/KeyenceTelecentric |
+| Keyence Profiler | Connector driver for Keyence profile sensors | Transformers/Inspection/KeyenceProfiler |
+| COGNEX | Connector driver for Modbus-TCP enabled communication with Cognex In-Sight cameras | Transformers/Cameras/Cognex |
+| TRUMPF Laser Marker | Connector driver for Trumpf laser markers | Transformers/Lasers/Trumpf |
+| FOBA | Connector driver for the M-Series FOBA lasers with Mark-US TCP interface | Transformers/Lasers/Foba |
+| SICK | Connector driver for the SICK FlexiCompact safety PLC | Transformers/PLCs/FlexiCompact |
+| WAGO | Connector driver for Modbus-TCP enabled communication with Wago I/O blocks | Transformers/IO/Wago |
+| Sturtevant Richmont | Connector driver for the Sturtevant Richmont Global400 torque controller interface | Transformers/AssemblyTools/Global400 |
 
 
 ---
