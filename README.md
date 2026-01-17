@@ -60,7 +60,7 @@ Flexxbotics Transformers enable **many-to-many interoperability** across heterog
 ## What You Can Do
 
 - Connect machines, robots, and other equipment for data acquisition and closed-loop control
-- Create multi-machine automation cells
+- Create multi-machine robotic automation cells
 - Integrate machines, robots, inspection, and other equipment with factory software solutions (MES, SCADA, ERP, QMS)
 - Program your own machine-to-automation or machine-to-business sytem transformers
 - Collect multi-source data streams for AI training data sets
