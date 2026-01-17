@@ -36,7 +36,11 @@ In FlexxCore architecture, a **Transformer** is the software component responsib
 
 > This repository contains **industrial automation transformers** — not machine learning or NLP transformers.
 
-Flexxbotics Transformers enable **many-to-many interoperability** across heterogeneous industrial equipment, allowing robots, CNCs, PLCs, inspection systems, and workcells to operate together through a common runtime and API.
+Flexxbotics Transformers enable **many-to-many interoperability** across heterogeneous industrial equipment, allowing robots, CNCs, PLCs, inspection systems, and workcells to operate together through a common runtime and API for 
+
+- Data integration to factory software systems such as MES, SCADA, ERP, and QMS
+- Orchestration of robotic automation workcells (HMI, Cell Logic, and Controls)
+- Closed loop process control/detection of machines and other equipment from trending inspection and sensors readings
 
 ---
 
