@@ -9,9 +9,15 @@
 ---
 
 <p align="center">
-  <img src="Documentation/Flexxbotics_Logo.png"
-       alt="Flexxbotics Logo"
-       style="width: 100%; max-width: 800px;" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)"
+            srcset="Documentation/Flexxbotics_Logo.png">
+    <source media="(prefers-color-scheme: light)"
+            srcset="Documentation/Flexxbotics_Logo-Transparent.png">
+    <img src="Documentation/Flexxbotics_Logo-Transparent.png"
+         alt="Flexxbotics Logo"
+         style="width: 100%; max-width: 800px;" />
+  </picture>
 </p>
 
 ## Overview
