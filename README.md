@@ -22,7 +22,9 @@
 
 ## Overview
 
-This repository is home to **open-source industrial transformers** compatible with **FlexxCore**, the runtime platform at the core of the **Flexxbotics Smart Factory and Workcell Automation system**.
+This repository is home to **open-source industrial transformers** compatible with **FlexxCore**, the runtime platform at the core of the **Flexxbotics Software-Defined Automation Platform**.
+
+Transformers provide a standardized abstraction layer for integrating plant machines, PLCs, CNCs, CMMs, sensors, safety systems, robots, and automation equipment using both open industrial protocols and vendor-specific proprietary interfaces.
 
 In FlexxCore architecture, a **Transformer** is the software component responsible for **communicating with equipment**. Transformer methods become the runtime execution points for:
 
