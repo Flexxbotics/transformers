@@ -70,17 +70,17 @@ Flexxbotics Transformers enable **many-to-many interoperability** across heterog
 
 ## What You’ll Find in This Repository
 
--**Open-source equipment transformers** compatible with Flexxbotics
--A base **Transformer Template** for creating new device connector drivers
--A reference **Workcell Transformer** that composes multiple transformers to:
-  -Reconcile overall workcell state
-  -Coordinate multi-device and factory software automation logic
-  -Execute multi-threaded and asynchronous controls
-  -Perform automated fault recovery and restarts
--Example **Automation Scripts** that:
-  -Are callable from the Flexxbotics HMI / Controls Configurator
-  -Can run in real time
-  -Interact directly with transformers to execute automation tasks for machines and factory software
+- **Open-source equipment transformers** compatible with Flexxbotics
+- A base **Transformer Template** for creating new device connector drivers
+- A reference **Workcell Transformer** that composes multiple transformers to:
+  - Reconcile overall workcell state
+  - Coordinate multi-device and factory software automation logic
+  - Execute multi-threaded and asynchronous controls
+  - Perform automated fault recovery and restarts
+- Example **Automation Scripts** that:
+  - Are callable from the Flexxbotics HMI / Controls Configurator
+  - Can run in real time
+  - Interact directly with transformers to execute automation tasks for machines and factory software
 
 ---
 
