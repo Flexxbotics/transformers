@@ -13,8 +13,8 @@
     <source media="(prefers-color-scheme: dark)"
             srcset="Documentation/Flexxbotics_Logo.png">
     <source media="(prefers-color-scheme: light)"
-            srcset="Documentation/Flexxbotics_Logo-Transparent.png">
-    <img src="Documentation/Flexxbotics_Logo-Transparent.png"
+            srcset="Documentation/Flexxbotics_Logo-White.jpg">
+    <img src="Documentation/Flexxbotics_Logo-White.jpg"
          alt="Flexxbotics Logo"
          style="width: 100%; max-width: 800px;" />
   </picture>
