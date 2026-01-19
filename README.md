@@ -1,5 +1,5 @@
 # Flexxbotics Transformers
-**Industrial Device & Workcell Transformers for the FlexxCore Platform**
+**Industrial Device & Workcell Transformers for the Flexxbotics Platform**
 
 ![License](https://img.shields.io/badge/license-Apache%202.0-blue)
 ![Language](https://img.shields.io/badge/language-Python-blue)
@@ -36,11 +36,12 @@ In FlexxCore architecture, a **Transformer** is the software component responsib
 
 > This repository contains **industrial automation transformers** — not machine learning or NLP transformers.
 
-Flexxbotics Transformers enable **many-to-many interoperability** across heterogeneous industrial equipment, allowing robots, CNCs, PLCs, inspection systems, and workcells to operate together through a common runtime and API for 
+Flexxbotics Transformers enable **many-to-many interoperability** across heterogeneous industrial equipment, allowing all types of factory machines, tools, PLCs, robots, CNCs,test & inspection systems, and workcells to operate together through a common runtime and API for 
 
-- Data integration to factory software systems such as MES, SCADA, ERP, and QMS
-- Orchestration of robotic automation workcells (HMI, Cell Logic, and Controls)
+- Orchestration of automation workcells (HMI, Cell Logic, and Controls)
 - Closed loop process control/detection of machines and other equipment from trending inspection and sensors readings
+- Data integration to factory software systems such as MES, IIoT/SCADA, ERP, and QMS
+- Data acquisition of multi-source streams for AI training sets
 
 ---
 
@@ -53,22 +54,23 @@ Flexxbotics Transformers enable **many-to-many interoperability** across heterog
 
 ## Intended Use Cases
 
-- Smart factory data acquisition and control for MES, SCADA, ERP, and QMS initiatives
-- Robotic workcells
-- CNC Machine-to-automation integration
+- Machine-to-automation integration
 - PLC-based automation
-- Industrial inspection and metrology
-- Process trend detection
+- Robotic workcells
+- Industrial test, inspection and metrology
+- Process trend deviation detection and correction
 - Closed-loop automated control of equipment parameters
+- Smart factory data acquisition and control for MES, IIoT/SCADA, ERP, and QMS initiatives
+- Multi-source, multi-modal production data stream pipelines for Industrial AI training data sets
 
 ---
 
 ## What You Can Do
 
-- Connect machines, robots, and other equipment for data acquisition and closed-loop control
-- Create multi-machine robotic automation cells
-- Integrate machines, robots, inspection, and other equipment with factory software solutions (MES, SCADA, ERP, QMS)
-- Program your own machine-to-automation or machine-to-business sytem transformers
+- Connect machines, automation, robots, and other equipment for data acquisition and closed-loop control
+- Create multi-machine automation cells
+- Integrate machines, robots, inspection, and other equipment with factory software solutions (MES, IIoT/SCADA, ERP, QMS)
+- Program your own machine-to-automation or machine-to-business system transformers
 - Collect multi-source data streams for AI training data sets
 - Get, use, modify, and redistribute transformers under a permissive open-source license
 
@@ -92,7 +94,7 @@ Flexxbotics Transformers enable **many-to-many interoperability** across heterog
 
 ## Key Concepts
 
-- Transformers are **loaded into the Flexxbotics runtime** to operate
+- Transformers are **loaded into the Flexxbotics SDA runtime** to operate
 - Each transformer abstracts vendor-specific protocols behind a standardized interface
 - Every transformer added to a runtime is **automatically compatible with all others**
 - Transformers are implemented in **Python**
@@ -102,15 +104,19 @@ Flexxbotics Transformers enable **many-to-many interoperability** across heterog
 
 ## FlexxCore 
 
+FlexxCore is a low-code environment for composing and running Transformers – translation driver connectors – which includes a secure, high performance runtime framework with data pipelines, protocols, class structures, method sets, and data models for development.
+
+Transformers enable realtime bi-directional read/write between all types of factory equipment and automation for many-to-many interoperability.
+
 FlexxCore is built around **Devices** and **Transformers**, with supporting concepts such as **Machine Models**, **Protocols**, **Extensions**, **Adapters**, and **Scripts**.
 
 ### Devices
 A **Device** is the top-level runtime object representing physical or logical equipment, such as:
 - Robots
 - PLCs
-- CNC machines
+- Factory machines
 - Safety systems
-- Inspection systems
+- Inspection & test equipment
 - Complete workcells
 
 Devices are created in the Flexxbotics UI and are assigned a **Machine Model**, which determines which transformer is used for communication.
