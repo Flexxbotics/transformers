@@ -104,7 +104,7 @@ Flexxbotics Transformers enable **many-to-many interoperability** across heterog
 
 ## FlexxCore 
 
-FlexxCore is a low-code environment for composing and running Transformers – translation driver connectors – which includes a secure, high performance runtime framework with data pipelines, protocols, class structures, method sets, and data models for development.
+FlexxCore is a low-code environment for composing and running Transformers – translation connector drivers – which includes a secure, high performance runtime framework with data pipelines, protocols, class structures, method sets, and data models for development.
 
 Transformers enable realtime bi-directional read/write between all types of factory equipment and automation for many-to-many interoperability.
 
