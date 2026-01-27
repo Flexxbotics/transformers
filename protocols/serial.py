@@ -70,7 +70,7 @@ class Serial(AbstractProtocol):
             baudrate=baudrate,
             bytesize=bytesize,
             stopbits=stopbits,
-            parity=ParityType[parity].value,
+            parity=parity,
             xonxoff=xonxoff,
             rtscts=rtscts,
             dsrdtr=dsrdtr,
@@ -80,8 +80,14 @@ class Serial(AbstractProtocol):
 
     def connect(self) -> int:
         try:
+            if self.__client.is_open:
+                self.__client.flush()
+                self.__client.close()
             self.__client.open()
         except SerialException as e:
+            self._error(self, message=str(e))
+            return 1
+        except Exception as e:
             self._error(self, message=str(e))
             return 1
         return 0
@@ -98,9 +104,28 @@ class Serial(AbstractProtocol):
             self.disconnect()
             self._error(self, message=str(e))
             return -1
+        except Exception as e:
+            self._error(self, message=str(e))
+            return -1
 
-    def receive(self, buffer_size) -> str:
-        return super().receive(buffer_size)
+    def receive(self, buffer_size : int = 1024) -> str:
+        try:
+            return (
+                self.__client.read_all()
+                .decode("utf-8")
+                .replace(">", "")
+                .replace("\r", "")
+                .replace("\n", "")
+                .replace(" ", "")
+                .replace("\x02", "")
+                .replace("\x17", "")
+                .split(",")
+            )
+        except Exception as e:
+            self._error(self, message=str(e))
 
     def disconnect(self):
-        return super().disconnect()
+        try:
+            self.__client.close()
+        except Exception as e:
+            self._error(self, message=str(e))
