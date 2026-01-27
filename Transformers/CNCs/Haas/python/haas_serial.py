@@ -18,6 +18,7 @@ from protocols.serial import Serial
 from protocols.serial import ParityType
 import json
 import base64
+import serial
 from transformers.abstract_device import AbstractDevice
 
 class HaasSerial(AbstractDevice):
@@ -35,15 +36,14 @@ class HaasSerial(AbstractDevice):
         super().__init__(device)
         self.meta_data = device.metaData
 
-        parity_type = ParityType()
         self.client = Serial(port=self.meta_data["port"],
-                             baudrate=self.meta_data["baudrate"],
-                             bytesize=self.meta_data["byte_size"],
-                             stopbits=self.meta_data["stop_bits"],
-                             parity=parity_type.get_parity(parity_type=self.meta_data["parity"]),
-                             xonxoff=self.meta_data["xonxoff"],
-                             rtscts=self.meta_data["rtscts"],
-                             dsrdtr=self.meta_data["dsrdtr"]
+                             baudrate=int(self.meta_data["baudrate"]),
+                             bytesize=self._get_byte_size(self.meta_data["byte_size"]),
+                             stopbits=self._get_stop_bits(self.meta_data["stop_bits"]),
+                             parity=self._get_parity(self.meta_data["parity"]),
+                             xonxoff=self._convert_string_to_bool(self.meta_data["xonxoff"]),
+                             rtscts=self._convert_string_to_bool(self.meta_data["rtscts"]),
+                             dsrdtr=self._convert_string_to_bool(self.meta_data["dsrdtr"])
                              )
         self.q_commands = {
             "write": "?E",
@@ -404,3 +404,33 @@ class HaasSerial(AbstractDevice):
             return value
         else:
             self._error(message="Error reading variable from device")
+
+    def _convert_string_to_bool(self, bool_string):
+        if bool_string == "TRUE":
+            return True
+        else:
+            return False
+
+    def _get_parity(self, parity_string):
+        if parity_string == "EVEN":
+            return serial.PARITY_EVEN
+        if parity_string == "ODD":
+            return serial.PARITY_ODD
+        if parity_string == "NONE":
+            return serial.PARITY_NONE
+        else:
+            return serial.PARITY_MARK
+
+    def _get_byte_size(self, byte_size_string):
+        if byte_size_string == "SEVENBITS":
+            return serial.SEVENBITS
+        else:
+            return serial.EIGHTBITS
+
+    def _get_stop_bits(self, stop_bits_string):
+        if stop_bits_string == "1":
+            return serial.STOPBITS_ONE
+        if stop_bits_string == "1.5":
+            return serial.STOPBITS_ONE_POINT_FIVE
+        else:
+            return serial.STOPBITS_TWO

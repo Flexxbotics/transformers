@@ -26,12 +26,13 @@
   },
   "metaData": {
     "port": "",
-    "baudrate": "",
-    "bytesize": "",
-    "stopbits": "",
-    "xonxoff": "",
-    "dsrdtr": "",
-    "rtscts": "",
-    "write_timeout": ""
+    "baudrate": "9600",
+    "bytesize": "EIGHTBITS",
+    "stopbits": "1",
+    "parity": "NONE",
+    "xonxoff": "False",
+    "dsrdtr": "False",
+    "rtscts": "False",
+    "write_timeout_seconds": "5"
   }
 }
