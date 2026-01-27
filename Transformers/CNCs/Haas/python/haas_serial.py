@@ -43,7 +43,8 @@ class HaasSerial(AbstractDevice):
                              parity=self._get_parity(self.meta_data["parity"]),
                              xonxoff=self._convert_string_to_bool(self.meta_data["xonxoff"]),
                              rtscts=self._convert_string_to_bool(self.meta_data["rtscts"]),
-                             dsrdtr=self._convert_string_to_bool(self.meta_data["dsrdtr"])
+                             dsrdtr=self._convert_string_to_bool(self.meta_data["dsrdtr"]),
+                             write_timeout=float(self.meta_data["write_timeout_seconds"]),
                              )
         self.q_commands = {
             "write": "?E",
