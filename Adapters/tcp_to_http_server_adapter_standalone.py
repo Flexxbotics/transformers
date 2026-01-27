@@ -1,17 +1,17 @@
 """
-    :copyright: (c) 2022-2024, Flexxbotics, a Delaware corporation (the "COMPANY")
-        All rights reserved.
+    Copyright 2025 Flexxbotics, Inc.
 
-        THIS SOFTWARE IS PROVIDED BY THE COMPANY ''AS IS'' AND ANY
-        EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-        WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-        DISCLAIMED. IN NO EVENT SHALL THE COMPANY BE LIABLE FOR ANY
-        DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-        (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-        LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-        ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-        (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-        SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+    Licensed under the Apache License, Version 2.0 (the "License");
+    you may not use this file except in compliance with the License.
+    You may obtain a copy of the License at
+
+        http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
 """
 import socket
 import json
@@ -74,7 +74,7 @@ class Logger:
             Construct a new logger.
 
             :param level:
-                the log level for the logger.
+                the logs level for the logger.
 
             :author:    johnc@flexxbotics.com
             :since:     KEYSTONE.IP (7.1.11.5)
@@ -186,7 +186,7 @@ class Logger:
             Log a TRACE leval message.
 
             :param message:
-                the message to log.
+                the message to logs.
 
             :author:    johnc@flexxbotics.com
             :since:     KEYSTONE.IP (7.1.11.5)
@@ -207,7 +207,7 @@ class Logger:
             Log a DEBUG leval message.
 
             :param message:
-                the message to log.
+                the message to logs.
 
             :author:    johnc@flexxbotics.com
             :since:     KEYSTONE.IP (7.1.11.5)
@@ -228,7 +228,7 @@ class Logger:
             Log a INFO leval message.
 
             :param message:
-                the message to log.
+                the message to logs.
 
             :author:    johnc@flexxbotics.com
             :since:     KEYSTONE.IP (7.1.11.5)
@@ -248,7 +248,7 @@ class Logger:
             Log an WARN leval message.
 
             :param message:
-                the message to log.
+                the message to logs.
 
             :author:    johnc@flexxbotics.com
             :since:     KEYSTONE.IP (7.1.11.5)
@@ -268,7 +268,7 @@ class Logger:
             Log an ERROR leval message.
 
             :param message:
-                the message to log.
+                the message to logs.
 
             :author:    johnc@flexxbotics.com
             :since:     KEYSTONE.IP (7.1.11.5)
@@ -288,7 +288,7 @@ class Logger:
             Log a CRITICAL leval message.
 
             :param message:
-                the message to log.
+                the message to logs.
 
             :author:    johnc@flexxbotics.com
             :since:     KEYSTONE.IP (7.1.11.5)
@@ -434,6 +434,8 @@ class TCPtoHTTPServer:
             if response_raw.status_code == 201 or response_raw.status_code == 204:
                 message = "Sending response: >OK<"
                 self._logger.debug(message)
+                if "read_carousel_index" in endpoint:
+                    return '>' + str(int(response_raw.text)) + '<'
                 if "read_profinet_bit" in endpoint:
                     return '>' + str(int(response_raw.text)) + '<'
                 return ">OK<"
@@ -599,7 +601,7 @@ class TCPtoHTTPServer:
 if __name__ == "__main__":
     current_path = os.path.abspath(os.path.dirname(__file__))
     name = "robot_tcp_http_adapter_standalone"
-    logfile = f"{current_path}/{name}.log"
+    logfile = f"{current_path}/{name}.logs"
     robot_adapter_logger = Logger(logging.DEBUG, logfile, name)
     attributes = {"name": "Universal Robot", "_id": "10000000001"}
     robot_tcp_server = TCPtoHTTPServer(host="0.0.0.0", port=7082, flask_port=7081, attributes=attributes,
