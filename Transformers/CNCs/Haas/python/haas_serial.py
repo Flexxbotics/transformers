@@ -38,8 +38,8 @@ class HaasSerial(AbstractDevice):
 
         self.client = Serial(port=self.meta_data["port"],
                              baudrate=int(self.meta_data["baudrate"]),
-                             bytesize=self._get_byte_size(self.meta_data["byte_size"]),
-                             stopbits=self._get_stop_bits(self.meta_data["stop_bits"]),
+                             bytesize=self._get_byte_size(self.meta_data["bytesize"]),
+                             stopbits=self._get_stop_bits(self.meta_data["stopbits"]),
                              parity=self._get_parity(self.meta_data["parity"]),
                              xonxoff=self._convert_string_to_bool(self.meta_data["xonxoff"]),
                              rtscts=self._convert_string_to_bool(self.meta_data["rtscts"]),
