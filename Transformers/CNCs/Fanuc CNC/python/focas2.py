@@ -877,5 +877,6 @@ class FOCAS2(AbstractDevice):
 
             return out
         finally:
+            #test
             self._disconnect()
 
