@@ -15,7 +15,7 @@
 """
 
 from serial import (
-    Serial,
+    Serial as PySerial,
     SerialException,
     PARITY_NONE,
     PARITY_EVEN,
@@ -65,7 +65,7 @@ class Serial(AbstractProtocol):
         dsrdtr: bool,
         write_timeout: float = 10,
     ):
-        self.__client = Serial(
+        self.__client = PySerial(
             port=port,
             baudrate=baudrate,
             bytesize=bytesize,
