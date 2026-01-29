@@ -484,7 +484,7 @@ class FOCAS2(AbstractDevice):
                 last_err = e
 
         raise FileNotFoundError(
-            "Unable to load FANUC FOCAS fwlib shared library from /app/protocols/dlls/. "
+            "Unable to load FANUC FOCAS fwlib shared library from /app/dlls/. "
             "Ensure libfwlib32-linux-x64.so.1.0.5 is present and matches linux/amd64. "
             f"Tried: {candidates}. "
             f"Last error: {last_err}"
