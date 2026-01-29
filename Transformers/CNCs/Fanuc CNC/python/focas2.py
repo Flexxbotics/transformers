@@ -63,7 +63,24 @@ class _ODBM(ctypes.Structure):
         ("mcr_val", c_int),
         ("dec_val", c_short),
     ]
+Name4 = c_char * 4  # char name[4]
 
+class _ODBAXDT(ctypes.Structure):
+    _fields_ = [
+        ("name", Name4),     # inline 4-byte null-terminated label
+        ("data", c_long),
+        ("dec",  c_short),
+        ("unit", c_short),
+        ("flag", c_short),
+        ("reserve", c_short),
+    ]
+    def _axis_name(self) -> str:
+        return bytes(self.name).split(b"\x00", 1)[0].decode("ascii", "replace")
+
+    def value(self) -> float:
+        raw = int(self.data)
+        dec = int(self.dec)
+        return raw / (10 ** dec) if dec > 0 else float(raw)
 
 class _IODBPMCUnion(ctypes.Union):
     _fields_ = [
@@ -73,6 +90,7 @@ class _IODBPMCUnion(ctypes.Union):
         ("fdata", c_float),
         ("dfdata", c_double),
     ]
+
 
     def get_by_dtype(self, data_type: int):
         # data_type mapping: 0=char, 1=short, 2=long, 3=float, 4=double
@@ -788,3 +806,76 @@ class FOCAS2(AbstractDevice):
         ret_end = self._fwlib.cnc_dwnend4(self._handle)
         self._ret_check(ret_end, "cnc_dwnend4")
         self._disconnect()
+
+    def _read_axis_data(self, cls: int = 1, types=(0, 1, 2, 3), max_axis: int | None = None):
+        """
+        cls=1 position, types: 0 abs, 1 machine, 2 relative, 3 dist-to-go
+        Returns:
+          {
+            "ABSOLUTE": [{"axis":"X", "raw":12345, "value":12.345, "dec":3, "unit":0, "flag":...}, ...],
+            "MACHINE":  [...],
+            ...
+          }
+        """
+        self._connect()
+        try:
+            num = len(types)
+            if max_axis is None:
+                max_axis = self.MAX_AXIS
+
+            # allocate output buffer: num * max_axis
+            AxArray = _ODBAXDT * (num * max_axis)
+            axdata = AxArray()
+
+            # types[] array
+            TypesArray = c_short * num
+            type_arr = TypesArray(*types)
+
+            # len is IN/OUT: pass max_axis, get actual active axes back
+            length = c_short(max_axis)
+
+            # Call signature (per spec): cnc_rdaxisdata(FlibHndl, cls, type*, num, len*, axdata*)
+            ret = self._fwlib.cnc_rdaxisdata(
+                self._handle,
+                c_short(cls),
+                type_arr,
+                c_short(num),
+                byref(length),
+                axdata
+            )
+            self._ret_check(ret, "cnc_rdaxisdata")
+
+            active_axes = int(length.value)
+
+            # Map the 0..3 types to labels (for cls=1)
+            labels = {
+                0: "ABSOLUTE",
+                1: "MACHINE",
+                2: "RELATIVE",
+                3: "DISTANCE_TO_GO",
+            }
+
+            out = {}
+            for t_index, t in enumerate(types):
+                label = labels.get(int(t), f"TYPE_{int(t)}")
+                base = t_index * max_axis  # IMPORTANT: storage is by the *requested* len (max_axis), not returned len
+                rows = []
+                for i in range(active_axes):
+                    item = axdata[base + i]
+                    axis = item._axis_name(item)
+                    raw = int(item.data)
+                    dec = int(item.dec)
+                    rows.append({
+                        "axis": axis,
+                        "raw": raw,
+                        "value": item._apply_dec(raw, dec),
+                        "dec": dec,
+                        "unit": int(item.unit),
+                        "flag": int(item.flag),
+                    })
+                out[label] = rows
+
+            return out
+        finally:
+            self._disconnect()
+
