@@ -445,7 +445,7 @@ class FOCAS2(AbstractDevice):
 
         For linux/amd64 Docker builds, this should be the x64.
         """
-        data_dir = "/app/protocols/dlls"
+        data_dir = "/app/dlls"
         so_link = os.path.join(data_dir, "libfwlib32.so")
         so_versioned = os.path.join(data_dir, "libfwlib32-linux-x64.so.1.0.5")
 
