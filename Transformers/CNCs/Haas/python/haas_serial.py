@@ -232,7 +232,7 @@ class HaasSerial(AbstractDevice):
             result = result.split(",")
             status = self._process_status(status=result)
 
-            spindle_speed_raw = "0" # TODO how to get spindle speed on a haas legacy?
+            spindle_speed_raw = self._read_variable(variable_name="3027") # 3027 macro = Spindle RPM
             spindle_speed = float(spindle_speed_raw)
             self._logger.info("Spindle Speed: " + str(spindle_speed))
             if spindle_speed <= 1.0 and status == "RUNNING":
