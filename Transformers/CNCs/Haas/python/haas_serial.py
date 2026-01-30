@@ -16,9 +16,14 @@
 from data_models.device import Device
 from protocols.serial import Serial
 from protocols.serial import ParityType
+from data_models.part_count_event import PartCountEvent
+from data_models.run_record import RunRecord
+from data_models.abstractions.variables.abstract_variable import AbstractVariable
+
 import json
 import base64
 import serial
+import time
 from transformers.abstract_device import AbstractDevice
 
 class HaasSerial(AbstractDevice):
@@ -67,7 +72,7 @@ class HaasSerial(AbstractDevice):
     # DEVICE COMMUNICATION METHODS
     # ############################################################################## #
 
-    def _execute_command(self, command_name: str, command_args: str) -> str:
+    def _execute_command_v2(self, command_name: str, command_args: str) -> str:
         """
         Executes the command sent to the device.
 
@@ -147,11 +152,61 @@ class HaasSerial(AbstractDevice):
         :return:    status - string
 
         :author:    tylerjm@flexxbotics.com
-        :author:    sanua@flexxbotics.com
 
-        :since:     ODOULS.3 (7.1.15.3)
+        :since:     ROLLING ROCK.5 (7.1.18.5)
         """
-        pass
+        # Get the most recent run record
+        run_record: RunRecord = self._run_record_service.get_run_records()[0]
+        run_record_id = run_record.id
+
+        # Get statys
+        status = self._read_status()
+
+        # Get the active program
+        time.sleep(0.5)
+        active_program = "" # TODO read active program on haas legacy
+        self._logger.info("Active program: " + active_program)
+
+        # Reset the part count on a program change
+        if run_record.partNumber != active_program:
+            database_variable: AbstractVariable = self._variable_service.get_variable_by_id_name_or_machine_variable_name(
+                machine_variable_name="active_program")
+            database_variable.latestValue = active_program
+            self._variable_service.update_variable(variable_id=str(database_variable.id), variable=database_variable)
+            run_record.partCount = 0
+            self.internal_last_program = active_program
+        else:
+            pass
+
+        # Set the active program on the active run record
+        if active_program != "":
+            run_record.partNumber = active_program
+        else:
+            run_record.partNumber = "123456789"
+        self._run_record_service.update_run_record(run_record=run_record)
+
+        if status != "RUNNING":
+            # Part count events
+            raw_cnc_count = int(self._execute_command_v2(command_name="get_part_count", command_args="{}"))
+            if self.internal_part_counter == 0:
+                self.internal_part_counter = raw_cnc_count
+            if raw_cnc_count != self.internal_part_counter:
+                # Part count event
+                self._logger.debug("Part count detected")
+                event: PartCountEvent = PartCountEvent()
+                event.deviceId = self.device_id
+                self._run_record_service.create_event(event=event)
+                self.internal_part_counter = raw_cnc_count
+                self._logger.debug("Part count event complete")
+
+        # Variable events approximately every 2 minutes
+        if self.interval_count % 60 == 0:
+            variables: list[AbstractVariable] = self._variable_service.get_variables_by_device_id(device_id=self.device_id)
+            for variable in variables:
+                self._device_service.read_device_variable(device_id=self.device_id, variable_name=variable.machineVariableName)
+                time.sleep(0.2)
+
+        self.interval_count += 1
 
     def _read_status(self, function: str = None) -> str:
         """
@@ -163,7 +218,7 @@ class HaasSerial(AbstractDevice):
         :return:    status - string
 
         :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
+        :since:     ROLLING ROCK.5 (7.1.18.5)
         """
         status = ""
         if function is None:
@@ -171,6 +226,20 @@ class HaasSerial(AbstractDevice):
             result = self.client.send(data=data, encoding="ascii", response_time=0.5)
             result = result.split(",")
             status = self._process_status(status=result)
+
+            spindle_speed_raw = "0" # TODO how to get spindle speed on a haas legacy?
+            spindle_speed = float(spindle_speed_raw)
+            self._logger.info("Spindle Speed: " + str(spindle_speed))
+            if spindle_speed <= 1.0 and status == "RUNNING":
+                status = "IDLE_SPINDLE"
+
+            alarm_status = "NO ACTIVE ALARMS" # TODO how to get alarm status on a haas legacy?
+            if alarm_status == "NO ACTIVE ALARMS":
+                pass
+            else:
+                status = alarm_status
+
+
         elif function == "":  # Some string
             # Write specific function call to read status
             pass
