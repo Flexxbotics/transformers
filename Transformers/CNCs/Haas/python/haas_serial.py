@@ -62,7 +62,8 @@ class HaasSerial(AbstractDevice):
             "get_motion_time": "?Q301",
             "get_last_cycle": "?Q303",
             "get_previous_cycle": "?Q304",
-            "get_part_count": "?Q500"
+            "get_part_count": "?Q500",
+            "get_active_program": "?Q500"
         }
 
     def __del__(self):
@@ -127,6 +128,10 @@ class HaasSerial(AbstractDevice):
                 expected = "PROGRAM"
                 actual_idx = 0
                 data_idx = 4
+            elif command_name == "get_active_program":
+                expected = "PROGRAM"
+                actual_idx = 0
+                data_idx = 1
             else:
                 pass
             response = self._process_response(
@@ -164,7 +169,7 @@ class HaasSerial(AbstractDevice):
 
         # Get the active program
         time.sleep(0.5)
-        active_program = "" # TODO read active program on haas legacy
+        active_program = self._execute_command_v2(command_name="get_active_program", command_args="{}")
         self._logger.info("Active program: " + active_program)
 
         # Reset the part count on a program change
