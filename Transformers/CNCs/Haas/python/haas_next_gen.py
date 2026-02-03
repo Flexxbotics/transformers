@@ -71,6 +71,8 @@ class HaasNextGen(AbstractDevice):
         self.interval_count = 0
         self.internal_last_program = ""
 
+        self.variables_dictionary = {}
+
     def __del__(self):
         pass
 
@@ -211,8 +213,8 @@ class HaasNextGen(AbstractDevice):
                 self.internal_part_counter = raw_cnc_count
                 self._logger.debug("Part count event complete")
 
-        # Variable events approximately every 2 minutes
-        if self.interval_count % 60 == 0:
+        # Variable events approximately every 15 minutes
+        if self.interval_count % 450 == 0:
             variables: list[AbstractVariable] = self._variable_service.get_variables_by_device_id(device_id=self.device_id)
             for variable in variables:
                 self._device_service.read_device_variable(device_id=self.device_id, variable_name=variable.machineVariableName)
