@@ -21,6 +21,7 @@ import json
 import base64
 import os
 import ctypes
+import bisect
 from ctypes import (
     c_short,
     c_ushort,
@@ -35,7 +36,14 @@ from ctypes import (
     byref,
 )
 import shutil
+import threading
+import time
 from transformers.abstract_device import AbstractDevice
+import csv
+from datetime import datetime, timezone
+
+import queue
+from collections import deque
 
 
 # -------------------------------
@@ -67,20 +75,24 @@ Name4 = c_char * 4  # char name[4]
 
 class _ODBAXDT(ctypes.Structure):
     _fields_ = [
-        ("name", Name4),     # inline 4-byte null-terminated label
-        ("data", c_long),
+        ("name", c_char * 4),          # char name[4]
+        ("data", ctypes.c_int32),      # <-- IMPORTANT (4 bytes)
         ("dec",  c_short),
         ("unit", c_short),
         ("flag", c_short),
         ("reserve", c_short),
     ]
+
     def _axis_name(self) -> str:
         return bytes(self.name).split(b"\x00", 1)[0].decode("ascii", "replace")
 
     def value(self) -> float:
         raw = int(self.data)
         dec = int(self.dec)
-        return raw / (10 ** dec) if dec > 0 else float(raw)
+        # guard against nonsense decimals
+        if dec < 0 or dec > 9:
+            return float(raw)
+        return raw / (10 ** dec) if dec else float(raw)
 
 class _IODBPMCUnion(ctypes.Union):
     _fields_ = [
@@ -165,6 +177,18 @@ class FOCAS2(AbstractDevice):
             # Load the correct shared library for the platform (linux/amd64 in your Docker build)
             self._load_fwlib()
             self._define_fwlib_prototypes()
+
+            self._rec_thread = None
+            self._rec_stop_event = threading.Event()
+            self._rec_lock = threading.Lock()
+            self._rec_samples = []
+            self._rec_config = {}
+
+            self._spc_queue = queue.Queue(maxsize=10000)
+            self._spc_thread = None
+            self._spc_stop_event = threading.Event()
+            self._spc_events = []  # list of {"ts":..., "event":..., "detail":...}
+            self._spc_lock = threading.Lock()
 
         except Exception as e:
             self._error(str(e))
@@ -350,6 +374,70 @@ class FOCAS2(AbstractDevice):
                 raw = base64.b64decode(program_data_b64)
                 self._program_download(str(program_path), raw)
                 return self._ok()
+
+            # ---- Axis position read ----
+            if command_name == "read_axis_data":
+                # args (optional):
+                # {
+                #   "cls": 1,
+                #   "types": [0,1,2,3],
+                #   "max_axis": 32
+                # }
+                self._ensure_connected()
+
+                cls = int(args.get("cls", 1))
+                types = args.get("types", [0, 1, 2, 3])
+                max_axis = args.get("max_axis")  # allow None
+
+                # validate types is list of ints
+                try:
+                    types = tuple(int(t) for t in types)
+                except Exception:
+                    return self._err("types must be a list of integers, e.g. [0,1,2,3]")
+
+                try:
+                    data = self._read_axis_data(cls=cls, types=types,
+                                                max_axis=(int(max_axis) if max_axis is not None else None))
+                    return self._ok(data)
+                except Exception as e:
+                    return self._err(f"read_axis_data failed: {e}")
+
+            if command_name == "start_recording":
+                # args example: {"axis":"X","pos_type":0,"poll_s":0.25}
+                self._ensure_connected()
+                axis = str(args.get("axis", "X"))
+                pos_type = int(args.get("pos_type", 0))
+                poll_s = float(args.get("poll_s", 0.25))
+                self._start_recording(axis=axis, pos_type=pos_type, poll_s=poll_s)
+                return self._ok({"recording": True, "axis": axis, "pos_type": pos_type, "poll_s": poll_s})
+
+            if command_name == "stop_recording":
+                samples = self._stop_recording()
+                return self._ok({"recording": False, "samples": samples, "count": len(samples)})
+
+            if command_name == "get_recording_data":
+                data = self._get_recording_data()
+                return self._ok({
+
+
+                    "recording": self._rec_thread is not None and self._rec_thread.is_alive(),
+                    "count": len(data),
+                    "samples": data,
+                })
+
+            if command_name == "save_recording_csv":
+                # args optional: {"file_path": "/tmp/myfile.csv"}
+                file_path = args.get("file_path")
+                try:
+                    written = self._save_recording_csv(file_path=str(file_path) if file_path else None)
+                    return self._ok({"file_path": written})
+                except Exception as e:
+                    return self._err(f"save_recording_csv failed: {e}")
+
+            if command_name == "get_spc_events":
+                with self._spc_lock:
+                    ev = list(self._spc_events)
+                return self._ok({"count": len(ev), "events": ev[-50:]})
 
             # ---- Unknown command ----
             return self._err(f"Unknown command_name: {command_name}")
@@ -808,33 +896,20 @@ class FOCAS2(AbstractDevice):
         self._disconnect()
 
     def _read_axis_data(self, cls: int = 1, types=(0, 1, 2, 3), max_axis: int | None = None):
-        """
-        cls=1 position, types: 0 abs, 1 machine, 2 relative, 3 dist-to-go
-        Returns:
-          {
-            "ABSOLUTE": [{"axis":"X", "raw":12345, "value":12.345, "dec":3, "unit":0, "flag":...}, ...],
-            "MACHINE":  [...],
-            ...
-          }
-        """
         self._connect()
         try:
             num = len(types)
             if max_axis is None:
                 max_axis = self.MAX_AXIS
 
-            # allocate output buffer: num * max_axis
             AxArray = _ODBAXDT * (num * max_axis)
             axdata = AxArray()
 
-            # types[] array
             TypesArray = c_short * num
             type_arr = TypesArray(*types)
 
-            # len is IN/OUT: pass max_axis, get actual active axes back
             length = c_short(max_axis)
 
-            # Call signature (per spec): cnc_rdaxisdata(FlibHndl, cls, type*, num, len*, axdata*)
             ret = self._fwlib.cnc_rdaxisdata(
                 self._handle,
                 c_short(cls),
@@ -847,29 +922,20 @@ class FOCAS2(AbstractDevice):
 
             active_axes = int(length.value)
 
-            # Map the 0..3 types to labels (for cls=1)
-            labels = {
-                0: "ABSOLUTE",
-                1: "MACHINE",
-                2: "RELATIVE",
-                3: "DISTANCE_TO_GO",
-            }
+            labels = {0: "ABSOLUTE", 1: "MACHINE", 2: "RELATIVE", 3: "DISTANCE_TO_GO"}
 
             out = {}
             for t_index, t in enumerate(types):
                 label = labels.get(int(t), f"TYPE_{int(t)}")
-                base = t_index * max_axis  # IMPORTANT: storage is by the *requested* len (max_axis), not returned len
+                base = t_index * max_axis
                 rows = []
                 for i in range(active_axes):
                     item = axdata[base + i]
-                    axis = item._axis_name(item)
-                    raw = int(item.data)
-                    dec = int(item.dec)
                     rows.append({
-                        "axis": axis,
-                        "raw": raw,
-                        "value": item._apply_dec(raw, dec),
-                        "dec": dec,
+                        "axis": item._axis_name(),
+                        "raw": int(item.data),
+                        "value": item.value(),
+                        "dec": int(item.dec),
                         "unit": int(item.unit),
                         "flag": int(item.flag),
                     })
@@ -877,6 +943,227 @@ class FOCAS2(AbstractDevice):
 
             return out
         finally:
-            #test
             self._disconnect()
+
+    def _read_x_abs(self) -> float | None:
+        data = self._read_axis_data(cls=1, types=(0,), max_axis=32)  # ABSOLUTE only
+        rows = data.get("ABSOLUTE", [])
+        for r in rows:
+            if r.get("axis") == "X":
+                return float(r.get("value"))
+        return None
+
+    def _start_recording(self, *, axis="X", pos_type=0, poll_s=0.25):
+        if self._rec_thread and self._rec_thread.is_alive():
+            raise Exception("Recording already in progress")
+
+        with self._rec_lock:
+            self._rec_samples = []
+        with self._spc_lock:
+            self._spc_events = []
+
+        # clear queue
+        while not self._spc_queue.empty():
+            try:
+                self._spc_queue.get_nowait()
+            except Exception:
+                break
+
+        self._rec_config = {"axis": axis, "pos_type": int(pos_type), "poll_s": float(poll_s)}
+        self._rec_stop_event.clear()
+
+        self._spc_stop_event.clear()
+        self._spc_thread = threading.Thread(target=self._spc_loop, daemon=True)
+        self._spc_thread.start()
+
+        self._rec_thread = threading.Thread(target=self._record_loop, daemon=True)
+        self._rec_thread.start()
+
+    def _stop_recording(self):
+        if not self._rec_thread:
+            return []
+
+        self._rec_stop_event.set()
+        self._rec_thread.join(timeout=5)
+        self._rec_thread = None
+
+        self._spc_stop_event.set()
+        if self._spc_thread:
+            self._spc_thread.join(timeout=2)
+        self._spc_thread = None
+
+        with self._rec_lock:
+            samples = list(self._rec_samples)
+        return samples
+
+    def _get_recording_data(self):
+        with self._rec_lock:
+            return list(self._rec_samples)
+
+    def _save_recording_csv(self, file_path: str | None, *, tolerance_s: float | None = None):
+        # snapshot
+        with self._rec_lock:
+            samples = list(self._rec_samples)
+        with self._spc_lock:
+            events = list(self._spc_events)
+
+        if not file_path:
+            # pick your default path logic here; this is just an example
+            file_path = "/tmp/focas_recording.csv"
+
+        # choose tolerance based on poll_s if not provided
+        if tolerance_s is None:
+            poll_s = float(self._rec_config.get("poll_s", 0.25))
+            tolerance_s = 0.6 * poll_s  # slightly generous
+
+        # Prep arrays for fast nearest lookup
+        sample_ts = [s.get("ts") for s in samples]
+        # filter out None (shouldn't happen, but be safe)
+        valid = [(i, t) for i, t in enumerate(sample_ts) if isinstance(t, (int, float))]
+        if not valid:
+            raise Exception("No valid timestamps in samples")
+
+        idxs, ts_list = zip(*valid)  # ts_list is sorted if samples were appended in time order
+
+        # init fields
+        for s in samples:
+            s.setdefault("spc_event", "")
+            s.setdefault("spc_detail", "")
+
+        # Attach each event to the nearest sample
+        for e in events:
+            et = e.get("ts")
+            if not isinstance(et, (int, float)):
+                continue
+
+            # find insertion point
+            j = bisect.bisect_left(ts_list, et)
+
+            # candidate nearest neighbors
+            candidates = []
+            if j > 0:
+                candidates.append(j - 1)
+            if j < len(ts_list):
+                candidates.append(j)
+
+            # choose nearest in time
+            best = None
+            best_dt = None
+            for c in candidates:
+                dt = abs(ts_list[c] - et)
+                if best_dt is None or dt < best_dt:
+                    best_dt = dt
+                    best = c
+
+            if best is None or best_dt is None or best_dt > tolerance_s:
+                # event too far from any sample, skip
+                continue
+
+            sample_index = idxs[best]
+            # if multiple events land on same sample, append
+            if samples[sample_index]["spc_event"]:
+                samples[sample_index]["spc_event"] += f"|{e.get('event', '')}"
+                samples[sample_index]["spc_detail"] += f"|{e.get('detail', '')}"
+            else:
+                samples[sample_index]["spc_event"] = e.get("event", "")
+                samples[sample_index]["spc_detail"] = e.get("detail", "")
+
+        # write
+        with open(file_path, "w", newline="") as f:
+            w = csv.DictWriter(
+                f,
+                fieldnames=["ts", "axis", "value", "spc_event", "spc_detail", "error"]
+            )
+            w.writeheader()
+            for s in samples:
+                w.writerow({
+                    "ts": s.get("ts", ""),
+                    "axis": s.get("axis", ""),
+                    "value": s.get("value", ""),
+                    "spc_event": s.get("spc_event", ""),
+                    "spc_detail": s.get("spc_detail", ""),
+                    "error": s.get("error", ""),
+                })
+
+        return file_path
+
+    def _record_loop(self):
+        poll_s = float(self._rec_config.get("poll_s", 0.25))
+        axis = self._rec_config.get("axis", "X")
+        pos_type = int(self._rec_config.get("pos_type", 0))
+
+        labels = {0: "ABSOLUTE", 1: "MACHINE", 2: "RELATIVE", 3: "DISTANCE_TO_GO"}
+        key = labels.get(pos_type, "ABSOLUTE")
+
+        while not self._rec_stop_event.is_set():
+            ts = time.time()
+            try:
+                data = self._read_axis_data(cls=1, types=(pos_type,), max_axis=32)
+                rows = data.get(key, [])
+                val = None
+                for r in rows:
+                    if r.get("axis") == axis:
+                        val = r.get("value")
+                        break
+
+                sample = {"ts": ts, "axis": axis, "value": val}
+
+                with self._rec_lock:
+                    self._rec_samples.append(sample)
+
+                # fire-and-forget to SPC thread (never block sampling)
+                if val is not None:
+                    try:
+                        self._spc_queue.put_nowait((ts, float(val)))
+                    except queue.Full:
+                        # Drop SPC analysis if overloaded; sampling continues.
+                        pass
+
+            except Exception as e:
+                with self._rec_lock:
+                    self._rec_samples.append({"ts": ts, "axis": axis, "error": str(e)})
+
+            time.sleep(poll_s)
+
+    def _spc_loop(self):
+        window = deque(maxlen=50)  # tune
+        trend_n = 7
+        shift_n = 8
+
+        def spc_check(vals):
+            if len(vals) < max(trend_n, shift_n):
+                return None, None
+            v = list(vals)
+
+            last_t = v[-trend_n:]
+            if all(last_t[i] < last_t[i+1] for i in range(trend_n - 1)):
+                return "TREND_UP", f"n={trend_n}"
+            if all(last_t[i] > last_t[i+1] for i in range(trend_n - 1)):
+                return "TREND_DOWN", f"n={trend_n}"
+
+            mean = sum(v) / len(v)
+            last_s = v[-shift_n:]
+            if all(x > mean for x in last_s):
+                return "SHIFT_UP", f"n={shift_n},mean={mean:.6f}"
+            if all(x < mean for x in last_s):
+                return "SHIFT_DOWN", f"n={shift_n},mean={mean:.6f}"
+
+            return None, None
+
+        while not self._spc_stop_event.is_set():
+            try:
+                ts, val = self._spc_queue.get(timeout=0.25)
+            except Exception:
+                continue
+
+            window.append(val)
+            event, detail = spc_check(window)
+            if event:
+                with self._spc_lock:
+                    self._spc_events.append({"ts": ts, "event": event, "detail": detail})
+
+
+
+
+
 
