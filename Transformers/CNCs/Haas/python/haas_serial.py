@@ -65,6 +65,8 @@ class HaasSerial(AbstractDevice):
             "get_part_count": "?Q500",
             "get_active_program": "?Q500"
         }
+        self.internal_part_counter = 0
+        self.interval_count = 0
 
     def __del__(self):
         pass
@@ -95,7 +97,7 @@ class HaasSerial(AbstractDevice):
         try:
             command = self.q_commands[command_name] + "\r\n"
             result = self.client.send(data=command, encoding="ascii", response_time=0.5)
-            result = result.split(",")
+            #result = result.split(",")
             if command_name == "get_mode":
                 expected = "MODE"
                 actual_idx = 0
@@ -162,50 +164,48 @@ class HaasSerial(AbstractDevice):
         """
         # Get the most recent run record
         run_record: RunRecord = self._run_record_service.get_run_records()[0]
-        run_record_id = run_record.id
 
         # Get statys
         status = self._read_status()
 
         # Get the active program
         time.sleep(0.5)
-        active_program = self._execute_command_v2(command_name="get_active_program", command_args="{}")
-        self._logger.info("Active program: " + active_program)
+        if status != "RUNNING" and status != "IDLE_SPINDLE":
+            active_program = str(self._execute_command_v2(command_name="get_active_program", command_args="{}"))
+            self._logger.info("Active program: " + str(active_program))
 
-        # Reset the part count on a program change
-        if run_record.partNumber != active_program:
-            database_variable: AbstractVariable = self._variable_service.get_variable_by_id_name_or_machine_variable_name(
-                machine_variable_name="active_program")
-            database_variable.latestValue = active_program
-            self._variable_service.update_variable(variable_id=str(database_variable.id), variable=database_variable)
-            run_record.partCount = 0
-            self.internal_last_program = active_program
-        else:
-            pass
+            # Reset the part count on a program change
+            if run_record.partNumber != active_program and active_program != "None":
+                run_record.partCount = 0
+            else:
+                pass
 
-        # Set the active program on the active run record
-        if active_program != "":
-            run_record.partNumber = active_program
-        else:
-            run_record.partNumber = "123456789"
-        self._run_record_service.update_run_record(run_record=run_record)
+            # Set the active program on the active run record
+            if active_program != "":
+                    if active_program != "None":
+                        run_record.partNumber = active_program
+                    else:
+                        # Program name is "None"
+                        run_record.partNumber = "NOT_REPORTED"
+            else:
+                run_record.partNumber = "NOT_REPORTED"
+            self._run_record_service.update_run_record(run_record=run_record)
 
-        if status != "RUNNING":
             # Part count events
             raw_cnc_count = int(self._execute_command_v2(command_name="get_part_count", command_args="{}"))
             if self.internal_part_counter == 0:
                 self.internal_part_counter = raw_cnc_count
             if raw_cnc_count != self.internal_part_counter:
                 # Part count event
-                self._logger.debug("Part count detected")
+                self._logger.info("Part count detected")
                 event: PartCountEvent = PartCountEvent()
                 event.deviceId = self.device_id
                 self._run_record_service.create_event(event=event)
                 self.internal_part_counter = raw_cnc_count
-                self._logger.debug("Part count event complete")
+                self._logger.info("Part count event complete")
 
-        # Variable events approximately every 2 minutes
-        if self.interval_count % 60 == 0:
+        # Variable events approximately every 15 minutes
+        if self.interval_count % 450 == 0:
             variables: list[AbstractVariable] = self._variable_service.get_variables_by_device_id(device_id=self.device_id)
             for variable in variables:
                 self._device_service.read_device_variable(device_id=self.device_id, variable_name=variable.machineVariableName)
@@ -229,14 +229,15 @@ class HaasSerial(AbstractDevice):
         if function is None:
             data = self.q_commands["status"] + "\r\n"
             result = self.client.send(data=data, encoding="ascii", response_time=0.5)
-            result = result.split(",")
-            status = self._process_status(status=result)
 
+            status = self._process_status(status=result)
+            self._logger.info("Status Result: " + str(status))
             spindle_speed_raw = self._read_variable(variable_name="3027") # 3027 macro = Spindle RPM
-            spindle_speed = float(spindle_speed_raw)
-            self._logger.info("Spindle Speed: " + str(spindle_speed))
-            if spindle_speed <= 1.0 and status == "RUNNING":
-                status = "IDLE_SPINDLE"
+            if spindle_speed_raw is not None:
+                spindle_speed = float(spindle_speed_raw)
+                self._logger.info("Spindle Speed: " + str(spindle_speed))
+                if spindle_speed <= 1.0 and status == "RUNNING":
+                    status = "IDLE_SPINDLE"
 
             alarm_status = "NO ACTIVE ALARMS" # TODO how to get alarm status on a haas legacy?
             if alarm_status == "NO ACTIVE ALARMS":
@@ -272,7 +273,7 @@ class HaasSerial(AbstractDevice):
         if function is None:
             q_command = self.q_commands["read"] + " " + str(variable_name) + "\r\n"
             result = self.client.send(data=q_command, encoding="ascii", response_time=0.5)
-            result = result.split(",")
+            #result = result.split(",")
             value = self._process_response(
                 result=result,
                 expected="MACRO",
@@ -309,7 +310,7 @@ class HaasSerial(AbstractDevice):
         if function is None:
             q_command = self.q_commands["write"] + str(variable_name) + " " + str(variable_value) + "\r\n"
             result = self.client.send(data=q_command, encoding="ascii", response_time=0.5)
-            result = result.split(",")
+            #result = result.split(",")
             value = self._process_response(
                 result=result,
                 expected="",
@@ -346,7 +347,7 @@ class HaasSerial(AbstractDevice):
         if function is None:
             q_command = self.q_commands["write"] + str(parameter_name) + " " + str(parameter_value) + "\r\n"
             result = self.client.send(data=q_command, encoding="ascii", response_time=0.5)
-            result = result.split(",")
+            #result = result.split(",")
             value = self._process_response(
                 result=result,
                 expected="",
@@ -380,7 +381,7 @@ class HaasSerial(AbstractDevice):
         if function is None:
             q_command = self.q_commands["read"] + " " + str(parameter_name) + "\r\n"
             result = self.client.send(data=q_command, encoding="ascii", response_time=0.5)
-            result = result.split(",")
+            #result = result.split(",")
             value = self._process_response(
                 result=result,
                 expected="MACRO",
@@ -462,16 +463,16 @@ class HaasSerial(AbstractDevice):
     # ############################################################################## #
 
     def _process_status(self, status):
-        if status[0] == "STATUSBUSY":
-            return status[0]
+        if status[0] == "STATUS" and status[1] == "BUSY":
+            return "RUNNING"
         if status[0] == "PROGRAM":
             return status[2]
         if status[0] == '':
-            return "BLANKSTRING"
-        if 'STATUSBUSY' in status[0]:
-            return "STATUSBUSY"
+            return "NO_DATA"
+        if 'STATUS' in status[0]:
+            return "RUNNING"
 
-        return "ERROR"
+        return "UNKNOWN_HAAS_STATE"
 
     def _process_response(self, result, expected, actual_idx, data_idx):
         if expected == result[actual_idx]:

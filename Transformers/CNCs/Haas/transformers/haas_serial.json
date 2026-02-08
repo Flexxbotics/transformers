@@ -27,9 +27,9 @@
   "metaData": {
     "port": "",
     "baudrate": "9600",
-    "bytesize": "EIGHTBITS",
+    "bytesize": "SEVENBITS",
     "stopbits": "1",
-    "parity": "NONE",
+    "parity": "EVEN",
     "xonxoff": "False",
     "dsrdtr": "False",
     "rtscts": "False",

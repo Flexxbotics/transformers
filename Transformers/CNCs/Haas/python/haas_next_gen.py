@@ -170,7 +170,6 @@ class HaasNextGen(AbstractDevice):
         """
         # Get the most recent run record
         run_record: RunRecord = self._run_record_service.get_run_records()[0]
-        run_record_id = run_record.id
 
         # Get statys
         status = self._read_status()
@@ -183,12 +182,7 @@ class HaasNextGen(AbstractDevice):
 
         # Reset the part count on a program change
         if run_record.partNumber != active_program:
-            database_variable: AbstractVariable = self._variable_service.get_variable_by_id_name_or_machine_variable_name(
-                machine_variable_name="active_program")
-            database_variable.latestValue = active_program
-            self._variable_service.update_variable(variable_id=str(database_variable.id), variable=database_variable)
             run_record.partCount = 0
-            self.internal_last_program = active_program
         else:
             pass
 
@@ -196,22 +190,22 @@ class HaasNextGen(AbstractDevice):
         if active_program != "":
             run_record.partNumber = active_program
         else:
-            run_record.partNumber = "123456789"
+            run_record.partNumber = "NOT_REPORTED"
         self._run_record_service.update_run_record(run_record=run_record)
 
-        if status != "RUNNING":
+        if status != "RUNNING" and status != "IDLE_SPINDLE":
             # Part count events
             raw_cnc_count = int(self._execute_command_v2(command_name="get_part_count", command_args="{}"))
             if self.internal_part_counter == 0:
                 self.internal_part_counter = raw_cnc_count
             if raw_cnc_count != self.internal_part_counter:
                 # Part count event
-                self._logger.debug("Part count detected")
+                self._logger.info("Part count detected")
                 event: PartCountEvent = PartCountEvent()
                 event.deviceId = self.device_id
                 self._run_record_service.create_event(event=event)
                 self.internal_part_counter = raw_cnc_count
-                self._logger.debug("Part count event complete")
+                self._logger.info("Part count event complete")
 
         # Variable events approximately every 15 minutes
         if self.interval_count % 450 == 0:
@@ -495,7 +489,7 @@ class HaasNextGen(AbstractDevice):
         if 'STATUSBUSY' in result[0]:
             return "RUNNING"
 
-        return "ERROR"
+        return "UNKNOWN_HAAS_STATE"
 
     def _process_response(self, result, expected, actual_idx, data_idx):
         if expected == result[actual_idx]:
