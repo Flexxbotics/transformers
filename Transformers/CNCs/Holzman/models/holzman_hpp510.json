@@ -1,0 +1,8 @@
+{
+  "_class": "com.flexxbotics.beans.EquipmentDefinition",
+  "controller": "Beckhoff",
+  "manufacturer": "Holzman",
+  "machineModel": "HPP510",
+  "transformer": "holzman",
+  "type": "CNC"
+}
