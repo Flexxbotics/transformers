@@ -485,7 +485,7 @@ class HaasNextGen(AbstractDevice):
         if result[0] == "PROGRAM":
             return result[2]
         if result[0] == '':
-            return "BLANKSTRING"
+            return "NO_DATA"
         if 'STATUSBUSY' in result[0]:
             return "RUNNING"
 
