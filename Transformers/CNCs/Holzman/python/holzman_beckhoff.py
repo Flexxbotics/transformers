@@ -99,7 +99,8 @@ class HolzmanBeckhoff(AbstractDevice):
         args = json.loads(command_args) if command_args else {}
         args = json.loads(args["value"])
         try:
-            pass
+            if command_name == "connect":
+                self._connect(timeout_s=10)
             # ---- Unknown command ----
             return "UNKNOWN_COMMAND"
 
