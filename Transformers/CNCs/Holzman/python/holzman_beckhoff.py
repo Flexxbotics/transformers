@@ -101,7 +101,10 @@ class HolzmanBeckhoff(AbstractDevice):
         try:
             if command_name == "connect":
                 self._connect(timeout_s=10)
-            # ---- Unknown command ----
+
+            elif command_name == "disconnect":
+                self._disconnect()
+
             return "UNKNOWN_COMMAND"
 
         except Exception as e:
