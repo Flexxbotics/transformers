@@ -3,6 +3,6 @@
   "controller": "Beckhoff",
   "manufacturer": "Holzman",
   "machineModel": "HPP380P",
-  "transformer": "holzman",
+  "transformer": "holzman_beckhoff",
   "type": "CNC"
 }

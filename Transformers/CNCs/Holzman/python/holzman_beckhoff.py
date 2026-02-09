@@ -26,7 +26,7 @@ from protocols.beckhoff_ads_twincat import ADS
 # Holzman Beckhoff driver class
 # --------------------------------------------------------------------------------------
 
-class Holzman(AbstractDevice):
+class HolzmanBeckhoff(AbstractDevice):
 
     def __init__(self, device: Device):
         """
@@ -50,11 +50,7 @@ class Holzman(AbstractDevice):
             self.port = int(self.meta_data.get("port", 851))  # 851 is common for TwinCAT PLC runtime 1
 
             # Beckhoff ADS specifics
-            self.ams_net_id = (
-                    self.meta_data.get("ams_net_id")
-                    or self.meta_data.get("amsNetId")
-                    or self.meta_data.get("amsNetID")
-            )
+            self.ams_net_id = self.meta_data.get("ams_net_id")
             self.ams_port = int(self.meta_data.get("ams_port", self.port))
 
             if not self.ams_net_id:

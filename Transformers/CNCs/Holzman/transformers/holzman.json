@@ -1,10 +1,12 @@
 {
-  "_class": "Holzman",
-  "transformer": "holzman",
+  "_class": "HolzmanBeckhoff",
+  "transformer": "holzman_beckhoff",
   "commands": {
   },
   "metaData": {
     "ip_address": "",
-    "port": ""
+    "port": "",
+    "ams_net_id": "",
+    "ams_port": ""
   }
 }
