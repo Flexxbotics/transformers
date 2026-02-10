@@ -167,11 +167,12 @@ class HaasSerial(AbstractDevice):
 
         # Get statys
         status = self._read_status()
+        time.sleep(0.25)
 
         # Get the active program
-        time.sleep(0.5)
         if status != "RUNNING" and status != "IDLE_SPINDLE":
             active_program = str(self._execute_command_v2(command_name="get_active_program", command_args="{}"))
+            time.sleep(0.25)
             self._logger.info("Active program: " + str(active_program))
 
             # Reset the part count on a program change
@@ -193,6 +194,7 @@ class HaasSerial(AbstractDevice):
 
             # Part count events
             raw_cnc_count = int(self._execute_command_v2(command_name="get_part_count", command_args="{}"))
+            time.sleep(0.25)
             if self.internal_part_counter == 0:
                 self.internal_part_counter = raw_cnc_count
             if raw_cnc_count != self.internal_part_counter:
@@ -205,11 +207,11 @@ class HaasSerial(AbstractDevice):
                 self._logger.info("Part count event complete")
 
         # Variable events approximately every 15 minutes
-        if self.interval_count % 450 == 0:
-            variables: list[AbstractVariable] = self._variable_service.get_variables_by_device_id(device_id=self.device_id)
-            for variable in variables:
-                self._device_service.read_device_variable(device_id=self.device_id, variable_name=variable.machineVariableName)
-                time.sleep(0.2)
+        # if self.interval_count % 450 == 0:
+            # variables: list[AbstractVariable] = self._variable_service.get_variables_by_device_id(device_id=self.device_id)
+            # for variable in variables:
+                # self._device_service.read_device_variable(device_id=self.device_id, variable_name=variable.machineVariableName)
+                # time.sleep(0.25)
 
         self.interval_count += 1
 
@@ -229,10 +231,13 @@ class HaasSerial(AbstractDevice):
         if function is None:
             data = self.q_commands["status"] + "\r\n"
             result = self.client.send(data=data, encoding="ascii", response_time=0.5)
+            time.sleep(0.25)
 
             status = self._process_status(status=result)
             self._logger.info("Status Result: " + str(status))
+
             spindle_speed_raw = self._read_variable(variable_name="3027") # 3027 macro = Spindle RPM
+            time.sleep(0.25)
             if spindle_speed_raw is not None:
                 spindle_speed = float(spindle_speed_raw)
                 self._logger.info("Spindle Speed: " + str(spindle_speed))
@@ -463,9 +468,12 @@ class HaasSerial(AbstractDevice):
     # ############################################################################## #
 
     def _process_status(self, status):
+        self._logger.info("Process Status: " + str(status))
         if status[0] == "STATUS" and status[1] == "BUSY":
             return "RUNNING"
         if status[0] == "PROGRAM":
+            return status[2]
+        if "PROGRAM" in status[0]:
             return status[2]
         if status[0] == '':
             return "NO_DATA"
