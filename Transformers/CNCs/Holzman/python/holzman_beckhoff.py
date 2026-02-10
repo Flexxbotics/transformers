@@ -1,19 +1,3 @@
-"""
-    Copyright 2022–2024 Flexxbotics, Inc.
-
-    Licensed under the Apache License, Version 2.0 (the "License");
-    you may not use this file except in compliance with the License.
-    You may obtain a copy of the License at
-
-        http://www.apache.org/licenses/LICENSE-2.0
-
-    Unless required by applicable law or agreed to in writing, software
-    distributed under the License is distributed on an "AS IS" BASIS,
-    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-    See the License for the specific language governing permissions and
-    limitations under the License.
-"""
-
 from __future__ import annotations
 
 from data_models.device import Device
@@ -35,7 +19,7 @@ class HolzmanBeckhoff(AbstractDevice):
         Expects device.metaData to contain (at minimum):
           - ams_net_id: "x.x.x.x.x.x" (TwinCAT AMS Net ID of the target)
           - ip_address: "a.b.c.d" (optional for pyads, but typically provided)
-          - port: int (optional; defaults to 851 or 8193 depending on your setup)
+          - port / ams_port: int (TwinCAT 2 often 801; TwinCAT 3 often 851)
           - timeout: float seconds (optional)
           - retry: int (optional)
           - retry_interval: float seconds (optional)
@@ -47,7 +31,7 @@ class HolzmanBeckhoff(AbstractDevice):
 
             # Common metadata keys
             self.address = self.meta_data.get("ip_address") or self.meta_data.get("address")
-            self.port = int(self.meta_data.get("port", 851))  # 851 is common for TwinCAT PLC runtime 1
+            self.port = int(self.meta_data.get("port", 801))
 
             # Beckhoff ADS specifics
             self.ams_net_id = self.meta_data.get("ams_net_id")
@@ -62,7 +46,7 @@ class HolzmanBeckhoff(AbstractDevice):
             self.retry_interval = float(self.meta_data.get("retry_interval", 0.1))
             self.auto_connect = bool(self.meta_data.get("auto_connect", True))
 
-            # Beckhoff client (pyads wrapper)
+            # Beckhoff client (protocol wrapper)
             self.client: ADS | None = None
 
             # Track state
@@ -70,14 +54,13 @@ class HolzmanBeckhoff(AbstractDevice):
 
         except Exception as e:
             self._error(str(e))
-            raise RuntimeError(f"Holzman init failed: {e}") from e
+            raise RuntimeError(f"HolzmanBeckhoff init failed: {e}") from e
 
     def __del__(self):
         try:
             if getattr(self, "_connected", False):
                 self._disconnect()
         except Exception:
-            # Never raise in destructor
             pass
 
     # ############################################################################## #
@@ -88,27 +71,52 @@ class HolzmanBeckhoff(AbstractDevice):
         """
         Executes the command sent to the device.
 
-        :param command_name:
-                    the command to be executed
-        :param command_args:
-                    json with the arguments for the command
+        Commands:
+          - connect
+          - disconnect
+          - read   (reads an ADS symbol)
 
-        :return:    the response after execution of command.
+        read command args (JSON inside args["value"]):
+          {
+            "symbol": "AchsStatus.Status",
+            "plc_type": null
+          }
         """
         # Parse the command from the incoming request
         args = json.loads(command_args) if command_args else {}
-        args = json.loads(args["value"])
+        args = json.loads(args["value"]) if isinstance(args, dict) and "value" in args else (args or {})
+
         try:
             if command_name == "connect":
                 self._connect(timeout_s=10)
+                return json.dumps({"status": "ok", "connected": True})
 
-            elif command_name == "disconnect":
+            if command_name == "disconnect":
                 self._disconnect()
+                return json.dumps({"status": "ok", "connected": False})
 
+            if command_name == "read":
+                # Required
+                symbol = args.get("symbol") or args.get("name")
+                if not symbol:
+                    return self._err("read requires {'symbol': '<ADS symbol name>'}")
+
+                # Optional plc_type (pyads.PLCTYPE_*)
+                plc_type = args.get("plc_type", None)
+
+                self._ensure_connected()
+                assert self.client is not None
+
+                value = self.client.read(str(symbol), plc_type=plc_type)
+                return json.dumps(
+                    {"status": "ok", "symbol": str(symbol), "value": value},
+                    default=str,
+                )
+
+            # ---- Unknown command ----
             return "UNKNOWN_COMMAND"
 
         except Exception as e:
-            # Convert any exception into an error response string
             return self._err(str(e))
 
     def _read_interval_data(self) -> str:
@@ -121,7 +129,7 @@ class HolzmanBeckhoff(AbstractDevice):
         status = ""
         if function is None:
             pass
-        elif function == "":  # Some string
+        elif function == "":
             pass
         else:
             pass
@@ -130,8 +138,10 @@ class HolzmanBeckhoff(AbstractDevice):
     def _read_variable(self, variable_name: str, function: str = None) -> str:
         value = ""
         if function is None:
-            pass
-        elif function == "":  # Some string
+            response = self._execute_command_v2(command_name="read", command_args='{"value": {"symbol": "'+variable_name+'"}')
+            return response.get("value", "ERROR")
+
+        elif function == "":
             pass
         else:
             pass
@@ -141,7 +151,7 @@ class HolzmanBeckhoff(AbstractDevice):
         value = ""
         if function is None:
             pass
-        elif function == "":  # Some string
+        elif function == "":
             pass
         else:
             pass
@@ -151,7 +161,7 @@ class HolzmanBeckhoff(AbstractDevice):
         value = ""
         if function is None:
             pass
-        elif function == "":  # Some string
+        elif function == "":
             pass
         else:
             pass
@@ -161,7 +171,7 @@ class HolzmanBeckhoff(AbstractDevice):
         value = ""
         if function is None:
             pass
-        elif function == "":  # Some string
+        elif function == "":
             pass
         else:
             pass
@@ -188,15 +198,10 @@ class HolzmanBeckhoff(AbstractDevice):
     def _connect(self, *, timeout_s: int = 10) -> None:
         """
         Create ADS client and open connection.
-
-        timeout_s is accepted to match AbstractDevice expectations; we pass
-        the effective timeout into ADS (seconds).
         """
-        # If already connected, no-op
         if getattr(self, "_connected", False) and self.client is not None:
             return
 
-        # Build a new ADS client instance
         self.client = ADS(
             ams_net_id=str(self.ams_net_id),
             ams_port=int(self.ams_port),
@@ -211,7 +216,7 @@ class HolzmanBeckhoff(AbstractDevice):
         if rc != 0:
             self._connected = False
             raise ConnectionError(
-                f"Holzman: ADS connect failed (ams_net_id={self.ams_net_id}, "
+                f"HolzmanBeckhoff: ADS connect failed (ams_net_id={self.ams_net_id}, "
                 f"ams_port={self.ams_port}, ip={self.address})"
             )
 
@@ -222,7 +227,6 @@ class HolzmanBeckhoff(AbstractDevice):
         Close ADS connection and release client.
         """
         if not getattr(self, "_connected", False):
-            # Still clear client if present
             if self.client is not None:
                 try:
                     self.client.disconnect()
@@ -240,5 +244,4 @@ class HolzmanBeckhoff(AbstractDevice):
 
     def _ensure_connected(self) -> None:
         if not self._connected:
-            # Auto-connect to match typical driver expectations.
             self._connect(timeout_s=10)
