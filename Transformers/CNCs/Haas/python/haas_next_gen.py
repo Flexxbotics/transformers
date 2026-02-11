@@ -70,6 +70,7 @@ class HaasNextGen(AbstractDevice):
         self.internal_part_counter = 0
         self.interval_count = 0
         self.internal_last_program = ""
+        self._idle_spindle_intervals = 0
 
         self.variables_dictionary = {}
 
@@ -238,11 +239,34 @@ class HaasNextGen(AbstractDevice):
             result = result.split(",")
             status = self._process_status(result=result)
 
-            spindle_speed = float(self.mtconnect_client.read_tag(tag="sspeed")[0]["text"].strip())
-            self._logger.info("Spindle Speed: " + str(spindle_speed))
-            if spindle_speed <= 1.0 and status == "RUNNING":
-                status = "IDLE_SPINDLE"
+            # Read spindle speed safely
+            spindle_speed = None
+            try:
+                spindle_speed = float(self.mtconnect_client.read_tag(tag="sspeed")[0]["text"].strip())
+            except Exception as e:
+                self._logger.error(f"Failed to read spindle speed: {str(e)}", exc_info=True)
 
+            if spindle_speed is not None:
+                self._logger.info("Spindle Speed: " + str(spindle_speed))
+                # Only track consecutive low-speed intervals while status is RUNNING
+                if status == "RUNNING":
+                    if spindle_speed < 1.0:
+                        self._idle_spindle_intervals += 1
+                    else:
+                        # Spindle came back -> reset counter and stay RUNNING
+                        self._idle_spindle_intervals = 0
+
+                    if self._idle_spindle_intervals >= 15:
+                        status = "IDLE_SPINDLE"
+                    else:
+                        # Ensure we return RUNNING while building toward 15 intervals
+                        status = "RUNNING"
+                else:
+                    # Not running -> reset counter
+                    self._idle_spindle_intervals = 0
+            else:
+                # If we can't read spindle speed, don't let an old counter linger
+                self._idle_spindle_intervals = 0
 
             time.sleep(0.5)
             alarm_status = self.mtconnect_client.read_tag(tag="aalarms")

@@ -67,6 +67,7 @@ class HaasSerial(AbstractDevice):
         }
         self.internal_part_counter = 0
         self.interval_count = 0
+        self._idle_spindle_intervals = 0
 
     def __del__(self):
         pass
@@ -236,13 +237,37 @@ class HaasSerial(AbstractDevice):
             status = self._process_status(status=result)
             self._logger.info("Status Result: " + str(status))
 
-            spindle_speed_raw = self._read_variable(variable_name="3027") # 3027 macro = Spindle RPM
-            time.sleep(0.25)
-            if spindle_speed_raw is not None:
-                spindle_speed = float(spindle_speed_raw)
+            # Read spindle speed safely
+            spindle_speed = None
+            try:
+                spindle_speed_raw = self._read_variable(variable_name="3027") # 3027 macro = Spindle RPM
+                time.sleep(0.25)
+                if spindle_speed_raw is not None:
+                    spindle_speed = float(spindle_speed_raw)
+            except Exception as e:
+                self._logger.error(f"Failed to read spindle speed: {str(e)}", exc_info=True)
+
+            if spindle_speed is not None:
                 self._logger.info("Spindle Speed: " + str(spindle_speed))
-                if spindle_speed <= 1.0 and status == "RUNNING":
-                    status = "IDLE_SPINDLE"
+                # Only track consecutive low-speed intervals while status is RUNNING
+                if status == "RUNNING":
+                    if spindle_speed < 1.0:
+                        self._idle_spindle_intervals += 1
+                    else:
+                        # Spindle came back -> reset counter and stay RUNNING
+                        self._idle_spindle_intervals = 0
+
+                    if self._idle_spindle_intervals >= 15:
+                        status = "IDLE_SPINDLE"
+                    else:
+                        # Ensure we return RUNNING while building toward 15 intervals
+                        status = "RUNNING"
+                else:
+                    # Not running -> reset counter
+                    self._idle_spindle_intervals = 0
+            else:
+                # If we can't read spindle speed, don't let an old counter linger
+                self._idle_spindle_intervals = 0
 
             alarm_status = "NO ACTIVE ALARMS" # TODO how to get alarm status on a haas legacy?
             if alarm_status == "NO ACTIVE ALARMS":
