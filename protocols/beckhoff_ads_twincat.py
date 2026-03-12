@@ -284,6 +284,18 @@ class ADS(AbstractProtocol):
         self.__notify_handles.append(h)
         return h
 
+    def list_symbols(self, prefix: Optional[str] = None, limit: int = 200) -> List[str]:
+        self._ensure_connected()
+        try:
+            syms = self.__conn.get_all_symbols()   # works on many pyads versions
+            names = [s.name for s in syms]
+            if prefix:
+                names = [n for n in names if n.startswith(prefix)]
+            return names[: max(1, int(limit))]
+        finally:
+            try: self.disconnect()
+            except Exception: pass
+
     # ----------------------------
     # Internal
     # ----------------------------
