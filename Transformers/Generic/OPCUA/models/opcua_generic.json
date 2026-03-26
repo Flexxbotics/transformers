@@ -1,0 +1,8 @@
+{
+  "_class": "com.flexxbotics.beans.EquipmentDefinition",
+  "controller": "OPC-UA",
+  "manufacturer": "Generic",
+  "machineModel": "OPC-UA Device",
+  "transformer": "GenericOPCUA",
+  "type": "Generic"
+}

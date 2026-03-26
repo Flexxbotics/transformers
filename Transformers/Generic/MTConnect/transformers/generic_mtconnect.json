@@ -1,0 +1,29 @@
+{
+  "_class": "GenericMTConnect",
+  "transformer": "GenericMTConnect",
+  "commands": {
+    "connect": {},
+    "disconnect": {},
+    "probe": {},
+    "current": {},
+    "sample": {
+      "from_sequence": "",
+      "count": "100"
+    },
+    "read_tag": {
+      "tag": "",
+      "component_stream": ""
+    },
+    "read_tags": {
+      "tags": "",
+      "component_stream": ""
+    }
+  },
+  "metaData": {
+    "ip_address": "",
+    "port": "5000",
+    "device_name": "",
+    "status_tag": "execution",
+    "interval_tags": ""
+  }
+}

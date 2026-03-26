@@ -1,0 +1,8 @@
+{
+  "_class": "com.flexxbotics.beans.EquipmentDefinition",
+  "controller": "MTConnect",
+  "manufacturer": "Generic",
+  "machineModel": "MTConnect Device",
+  "transformer": "GenericMTConnect",
+  "type": "Generic"
+}

@@ -1,0 +1,45 @@
+{
+  "_class": "GenericOPCUA",
+  "transformer": "GenericOPCUA",
+  "commands": {
+    "connect": {},
+    "disconnect": {},
+    "read": {
+      "node_id": "",
+      "variant_type": ""
+    },
+    "write": {
+      "node_id": "",
+      "value": "",
+      "variant_type": ""
+    },
+    "read_nodes": {
+      "node_ids": ""
+    },
+    "browse": {
+      "node_id": "i=85"
+    },
+    "subscribe": {
+      "node_ids": "",
+      "publishing_interval_ms": "250"
+    },
+    "receive_notifications": {
+      "buffer_size": "10"
+    },
+    "health_check": {}
+  },
+  "metaData": {
+    "endpoint": "",
+    "ip_address": "",
+    "port": "4840",
+    "username": "",
+    "password": "",
+    "security_string": "",
+    "timeout": "4.0",
+    "retry": "2",
+    "retry_interval": "0.1",
+    "status_node_id": "",
+    "interval_node_ids": "",
+    "subscription_queue_maxlen": "5000"
+  }
+}
