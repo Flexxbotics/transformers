@@ -1,0 +1,13 @@
+{
+  "_class": "YaskawaMP2600ModbusTCP",
+  "transformer": "YaskawaMP2600ModbusTCP",
+  "commands": {
+    "set_carousel_index": {
+      "index": ""
+    }
+  },
+  "metaData": {
+    "ip_address": "",
+    "port": "502"
+  }
+}

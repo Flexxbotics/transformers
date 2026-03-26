@@ -1,0 +1,19 @@
+{
+  "_class": "SturtevantGlobal400",
+  "transformer": "SturtevantGlobal400",
+  "commands": {
+    "GET_CURRENT_TOOL": {
+      "": ""
+    },
+    "READ_BATCH_COUNTER": {
+      "": ""
+    },
+    "READ_CURRENT_BATCH_SIZE": {
+      "": ""
+    }
+  },
+  "metaData": {
+    "ip_address": "",
+    "port": ""
+  }
+}

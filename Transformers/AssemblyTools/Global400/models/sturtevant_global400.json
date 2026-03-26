@@ -1,8 +1,0 @@
-{
-  "_class": "com.flexxbotics.beans.EquipmentDefinition",
-  "controller": "Global400",
-  "manufacturer": "Sturtevant Richmont",
-  "machineModel": "Global400",
-  "transformer": "Global400",
-  "type": "Assembly Tool"
-}

@@ -1,0 +1,8 @@
+{
+  "_class": "com.flexxbotics.beans.EquipmentDefinition",
+  "controller": "Legacy",
+  "manufacturer": "Haas",
+  "machineModel": "TM-2P",
+  "transformer": "haas_serial",
+  "type": "CNC"
+}

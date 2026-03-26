@@ -1,6 +1,6 @@
 {
-  "_class": "CognexCamera",
-  "transformer": "CognexCamera",
+  "_class": "CognexModbusTCP",
+  "transformer": "CognexModbusTCP",
   "commands": {
     "run_routine": {
       "program": ""

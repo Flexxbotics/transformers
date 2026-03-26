@@ -3,6 +3,6 @@
   "controller": "ModbusTCP",
   "manufacturer": "Wago",
   "machineModel": "ModbusTCP",
-  "transformer": "Wago",
+  "transformer": "WagoModbusTCP",
   "type": "I/O"
 }

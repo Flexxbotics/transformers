@@ -1,0 +1,8 @@
+{
+  "_class": "com.flexxbotics.beans.EquipmentDefinition",
+  "controller": "FOBA",
+  "manufacturer": "FOBA",
+  "machineModel": "DP7",
+  "transformer": "FOBA",
+  "type": "Laser"
+}

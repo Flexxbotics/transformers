@@ -1,0 +1,8 @@
+{
+  "_class": "com.flexxbotics.beans.EquipmentDefinition",
+  "controller": "FANUC I-Series",
+  "manufacturer": "FANUC CNC",
+  "machineModel": "31i-B5",
+  "transformer": "focas2",
+  "type": "CNC"
+}

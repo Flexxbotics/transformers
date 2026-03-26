@@ -1,0 +1,8 @@
+{
+  "_class": "com.flexxbotics.beans.EquipmentDefinition",
+  "controller": "OSP300",
+  "manufacturer": "Okuma",
+  "machineModel": "GENOS L300-E",
+  "transformer": "Okuma",
+  "type": "CNC"
+}

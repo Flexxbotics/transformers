@@ -6,6 +6,6 @@
   "controller": "VisionSuit",
   "manufacturer": "Cognex",
   "machineModel": "in-sight-2800",
-  "transformer": "CognexCamera",
+  "transformer": "CognexModbusTCP",
   "type": "Camera"
 }

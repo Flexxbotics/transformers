@@ -1,0 +1,8 @@
+{
+  "_class": "com.flexxbotics.beans.EquipmentDefinition",
+  "controller": "FOBA",
+  "manufacturer": "FOBA",
+  "machineModel": "Y.1000",
+  "transformer": "FOBA",
+  "type": "Laser"
+}
