@@ -1,0 +1,8 @@
+{
+  "_class": "com.flexxbotics.beans.EquipmentDefinition",
+  "controller": "iQ-F Series",
+  "manufacturer": "Mitsubishi Electric",
+  "machineModel": "FX5U-80MT",
+  "transformer": "MitsubishiMelsec",
+  "type": "PLC"
+}

@@ -1,0 +1,66 @@
+{
+  "_class": "SiemensS7",
+  "transformer": "SiemensS7",
+  "commands": {
+    "connect": {},
+    "disconnect": {},
+    "read_db": {
+      "db_number": "",
+      "start": "",
+      "size": ""
+    },
+    "write_db": {
+      "db_number": "",
+      "start": "",
+      "data": []
+    },
+    "read_bool": {
+      "db_number": "",
+      "byte_offset": "",
+      "bit_offset": ""
+    },
+    "write_bool": {
+      "db_number": "",
+      "byte_offset": "",
+      "bit_offset": "",
+      "value": false
+    },
+    "read_int": {
+      "db_number": "",
+      "start": ""
+    },
+    "write_int": {
+      "db_number": "",
+      "start": "",
+      "value": ""
+    },
+    "read_real": {
+      "db_number": "",
+      "start": ""
+    },
+    "write_real": {
+      "db_number": "",
+      "start": "",
+      "value": ""
+    },
+    "read_dword": {
+      "db_number": "",
+      "start": ""
+    },
+    "write_dword": {
+      "db_number": "",
+      "start": "",
+      "value": ""
+    }
+  },
+  "metaData": {
+    "ip_address": "",
+    "rack": "0",
+    "slot": "1",
+    "tcp_port": "102",
+    "timeout": "2.0",
+    "retry": "2",
+    "status_db": "1",
+    "status_start": "0"
+  }
+}

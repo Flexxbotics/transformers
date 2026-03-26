@@ -1,0 +1,8 @@
+{
+  "_class": "com.flexxbotics.beans.EquipmentDefinition",
+  "controller": "ControlLogix 5580",
+  "manufacturer": "Allen-Bradley",
+  "machineModel": "1756-L82E",
+  "transformer": "AllenBradleyLogix",
+  "type": "PLC"
+}

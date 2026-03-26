@@ -1,0 +1,38 @@
+{
+  "_class": "BeckhoffTwinCAT",
+  "transformer": "BeckhoffTwinCAT",
+  "commands": {
+    "connect": {},
+    "disconnect": {},
+    "read": {
+      "symbol": "",
+      "plc_type": "INT"
+    },
+    "write": {
+      "symbol": "",
+      "value": "",
+      "plc_type": "INT"
+    },
+    "read_state": {},
+    "add_notification": {
+      "symbol": "",
+      "plc_type": "INT",
+      "cycle_time_ms": "100"
+    },
+    "list_symbols": {
+      "prefix": "",
+      "limit": "200"
+    }
+  },
+  "metaData": {
+    "ip_address": "",
+    "ams_net_id": "",
+    "ams_port": "851",
+    "local_ams_net_id": "",
+    "timeout": "2.0",
+    "retry": "2",
+    "retry_interval": "0.1",
+    "status_symbol": "",
+    "interval_symbols": ""
+  }
+}

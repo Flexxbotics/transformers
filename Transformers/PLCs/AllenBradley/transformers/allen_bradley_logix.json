@@ -1,0 +1,31 @@
+{
+  "_class": "AllenBradleyLogix",
+  "transformer": "AllenBradleyLogix",
+  "commands": {
+    "connect": {},
+    "disconnect": {},
+    "read_tag": {
+      "tag": ""
+    },
+    "read_tags": {
+      "tags": []
+    },
+    "write_tag": {
+      "tag": "",
+      "value": ""
+    },
+    "write_tags": {
+      "writes": []
+    },
+    "get_tag_list": {
+      "prefix": ""
+    }
+  },
+  "metaData": {
+    "ip_address": "",
+    "slot": "",
+    "timeout": "2.0",
+    "retry": "2",
+    "status_tag": ""
+  }
+}

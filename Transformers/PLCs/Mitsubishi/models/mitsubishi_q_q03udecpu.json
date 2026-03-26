@@ -1,0 +1,8 @@
+{
+  "_class": "com.flexxbotics.beans.EquipmentDefinition",
+  "controller": "Q Series",
+  "manufacturer": "Mitsubishi Electric",
+  "machineModel": "Q03UDECPU",
+  "transformer": "MitsubishiMelsec",
+  "type": "PLC"
+}

@@ -1,0 +1,8 @@
+{
+  "_class": "com.flexxbotics.beans.EquipmentDefinition",
+  "controller": "CompactLogix 5380",
+  "manufacturer": "Allen-Bradley",
+  "machineModel": "5069-L320ER",
+  "transformer": "AllenBradleyLogix",
+  "type": "PLC"
+}

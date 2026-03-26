@@ -1,0 +1,8 @@
+{
+  "_class": "com.flexxbotics.beans.EquipmentDefinition",
+  "controller": "CompactLogix 5370",
+  "manufacturer": "Allen-Bradley",
+  "machineModel": "1769-L30ER",
+  "transformer": "AllenBradleyLogix",
+  "type": "PLC"
+}

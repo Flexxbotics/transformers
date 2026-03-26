@@ -1,0 +1,8 @@
+{
+  "_class": "com.flexxbotics.beans.EquipmentDefinition",
+  "controller": "S7-300",
+  "manufacturer": "Siemens",
+  "machineModel": "CPU 315-2 PN/DP",
+  "transformer": "SiemensS7",
+  "type": "PLC"
+}

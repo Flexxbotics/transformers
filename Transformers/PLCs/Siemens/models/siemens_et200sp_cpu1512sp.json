@@ -1,0 +1,8 @@
+{
+  "_class": "com.flexxbotics.beans.EquipmentDefinition",
+  "controller": "ET 200SP",
+  "manufacturer": "Siemens",
+  "machineModel": "CPU 1512SP-1 PN",
+  "transformer": "SiemensS7",
+  "type": "PLC"
+}

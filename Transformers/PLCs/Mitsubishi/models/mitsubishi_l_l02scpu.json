@@ -1,0 +1,8 @@
+{
+  "_class": "com.flexxbotics.beans.EquipmentDefinition",
+  "controller": "L Series",
+  "manufacturer": "Mitsubishi Electric",
+  "machineModel": "L02SCPU",
+  "transformer": "MitsubishiMelsec",
+  "type": "PLC"
+}

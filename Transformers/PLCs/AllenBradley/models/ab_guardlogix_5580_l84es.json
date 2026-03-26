@@ -1,0 +1,8 @@
+{
+  "_class": "com.flexxbotics.beans.EquipmentDefinition",
+  "controller": "GuardLogix 5580",
+  "manufacturer": "Allen-Bradley",
+  "machineModel": "1756-L84ES",
+  "transformer": "AllenBradleyLogix",
+  "type": "PLC"
+}

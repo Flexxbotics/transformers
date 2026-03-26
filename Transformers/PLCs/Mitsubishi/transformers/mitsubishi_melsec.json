@@ -1,0 +1,46 @@
+{
+  "_class": "MitsubishiMelsec",
+  "transformer": "MitsubishiMelsec",
+  "commands": {
+    "connect": {},
+    "disconnect": {},
+    "read_words": {
+      "device": "",
+      "count": "1"
+    },
+    "read_bits": {
+      "device": "",
+      "count": "1"
+    },
+    "write_words": {
+      "device": "",
+      "values": []
+    },
+    "write_bits": {
+      "device": "",
+      "values": []
+    },
+    "random_read": {
+      "word_devices": [],
+      "bit_devices": []
+    },
+    "random_write": {
+      "word_devices": [],
+      "word_values": [],
+      "bit_devices": [],
+      "bit_values": []
+    }
+  },
+  "metaData": {
+    "ip_address": "",
+    "port": "5007",
+    "frame_type": "3E",
+    "plc_type": "Q",
+    "timeout": "2.0",
+    "retry": "2",
+    "network": "0",
+    "pc_number": "255",
+    "status_device": "SM400",
+    "interval_devices": ""
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "_class": "com.flexxbotics.beans.EquipmentDefinition",
+  "controller": "iQ-R Series",
+  "manufacturer": "Mitsubishi Electric",
+  "machineModel": "R04CPU",
+  "transformer": "MitsubishiMelsec",
+  "type": "PLC"
+}

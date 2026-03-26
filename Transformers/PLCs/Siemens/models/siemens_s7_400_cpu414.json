@@ -1,0 +1,8 @@
+{
+  "_class": "com.flexxbotics.beans.EquipmentDefinition",
+  "controller": "S7-400",
+  "manufacturer": "Siemens",
+  "machineModel": "CPU 414-3 PN/DP",
+  "transformer": "SiemensS7",
+  "type": "PLC"
+}

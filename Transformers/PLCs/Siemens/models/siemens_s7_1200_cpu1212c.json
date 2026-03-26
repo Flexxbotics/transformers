@@ -1,0 +1,8 @@
+{
+  "_class": "com.flexxbotics.beans.EquipmentDefinition",
+  "controller": "S7-1200",
+  "manufacturer": "Siemens",
+  "machineModel": "CPU 1212C",
+  "transformer": "SiemensS7",
+  "type": "PLC"
+}
