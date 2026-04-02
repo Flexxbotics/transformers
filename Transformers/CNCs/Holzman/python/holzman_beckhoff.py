@@ -17,12 +17,14 @@
 from __future__ import annotations
 
 from data_models.device import Device
+from data_models.part_count_event import PartCountEvent
+from data_models.run_record import RunRecord
 import json
 import base64
 from datetime import datetime, timezone
 from transformers.abstract_device import AbstractDevice
 from protocols.beckhoff_ads_twincat import ADS
-from protocols.s3 import S3Protocol
+# from protocols.s3 import S3Protocol
 import pyads
 import time
 
@@ -71,6 +73,7 @@ class HolzmanBeckhoff(AbstractDevice):
 
             # Track state
             self._connected = False
+            self._last_programmlaeuft = False
 
         except Exception as e:
             self._logger.error(str(e))
@@ -156,23 +159,175 @@ class HolzmanBeckhoff(AbstractDevice):
         """
         self._ensure_connected()
         self._log_key_plc_values()
+        self._check_program_and_part_count()
+
+    def _check_program_and_part_count(self) -> None:
+        """
+        Detects the active program number and part count events.
+
+        Active program  : .PNRNM (DINT) — the numeric program ID loaded on the saw.
+        Part count      : falling edge of .PROGRAMMLAEUFT (True → False) signals
+                          that a program cycle completed and a part was produced.
+        """
+        if self.client is None:
+            return
+
+        bool_type = self._plc_type_from_args("BOOL")
+        dint_type = self._plc_type_from_args("DINT")
+
+        try:
+            # --- Active program ---
+            try:
+                pnrnm = self.client.read(symbol=".PNRNM", plc_type=dint_type)
+                active_program = str(pnrnm) if pnrnm else "NOT_REPORTED"
+            except Exception:
+                active_program = "NOT_REPORTED"
+
+            self._logger.info(f"Active program: {active_program}")
+
+            # Get the most recent run record
+            run_record: RunRecord = self._run_record_service.get_run_records()[0]
+
+            # Reset part count on program change
+            if run_record.partNumber != active_program:
+                run_record.partCount = 0
+
+            # Set the active program on the run record
+            if active_program != "NOT_REPORTED":
+                run_record.partNumber = active_program
+            else:
+                run_record.partNumber = "NOT_REPORTED"
+            self._run_record_service.update_run_record(run_record=run_record)
+
+            # --- Part count (falling edge: PROGRAMMLAEUFT True → False) ---
+            try:
+                programmlaeuft = bool(self.client.read(symbol=".PROGRAMMLAEUFT", plc_type=bool_type))
+            except Exception:
+                programmlaeuft = None
+
+            if programmlaeuft is not None:
+                if self._last_programmlaeuft is True and programmlaeuft is False:
+                    self._logger.info("Part count detected (PROGRAMMLAEUFT cycle complete)")
+                    event: PartCountEvent = PartCountEvent()
+                    event.deviceId = self.device_id
+                    self._run_record_service.create_event(event=event)
+                    self._logger.info("Part count event created")
+                self._last_programmlaeuft = programmlaeuft
+
+        except Exception as e:
+            self._logger.error(f"_check_program_and_part_count failed: {e}")
 
     def _read_status(self, function: str = None) -> str:
-        status = ""
-        self._ensure_connected()
+        try:
+            self._ensure_connected()
+        except (ConnectionError, Exception):
+            return "MACHINE_NOT_CONNECTED_OR_POWERED_OFF"
         assert self.client is not None
-        if function is None:
-            status = self.client.read(symbol=".ACHSSTATUS", plc_type=self._plc_type_from_args("INT"))
-            if str(status) == "0":
-                return "IDLE"
-            if str(status) != "0":
+
+        if function is not None:
+            return ""
+
+        bool_type = self._plc_type_from_args("BOOL")
+        int_type  = self._plc_type_from_args("INT")
+
+        faults = []
+
+        # ------------------------------------------------------------------ #
+        # 1. Boolean fault flags — True = fault active                        #
+        # ------------------------------------------------------------------ #
+
+        # DBERROR read separately so we can append the error code
+        try:
+            if self.client.read(symbol=".DBERROR", plc_type=bool_type):
+                msg = "DATABASE_ERROR"
+                try:
+                    code = self.client.read(symbol=".DBERRORCODE", plc_type=int_type)
+                    msg += f"_CODE_{code}"
+                except Exception:
+                    pass
+                faults.append(msg)
+        except Exception:
+            pass
+
+        BOOL_FAULT_TAGS = [
+            (".ERRORHSANL",                   "HS_SYSTEM_ERROR"),
+            (".OWARNUNG",                      "OPERATOR_WARNING"),
+            (".SONDERFEHLER",                  "SPECIAL_FAULT"),
+            (".E_SPANNUNGSAUSFALL",            "POWER_FAILURE"),
+            (".SWPOSSCHLEPPFEHLER",            "SAW_AXIS_FOLLOWING_ERROR"),
+            (".SWSCHLEPPFEHLER",               "SAW_FOLLOWING_ERROR"),
+            (".PRSPOSSCHLEPPFEHLER",           "PRS_AXIS_FOLLOWING_ERROR"),
+            (".GAPOSSCHLEPPFEHLER",            "GA_AXIS_FOLLOWING_ERROR"),
+            (".LAWSCHLEPPFEHLER",              "LAW_AXIS_FOLLOWING_ERROR"),
+            (".VVSPOSSCHLEPPFEHLER",           "VVS_AXIS_FOLLOWING_ERROR"),
+            (".VACPOSSCHLEPPFEHLER",           "VAC_AXIS_FOLLOWING_ERROR"),
+            (".VACSCHLEPPFEHLER",              "VAC_FOLLOWING_ERROR"),
+            (".DREHVPOSSCHLEPPFEHLER",         "ROTATION_AXIS_FOLLOWING_ERROR"),
+            (".ZANGENERROR",                   "CLAMP_GRIPPER_ERROR"),
+            (".OERRORTIMEOUT",                 "MOTION_TIMEOUT_ERROR"),
+            (".OHTANERROR",                    "STACKER_ERROR"),
+            ("VAC2EINS.OERROR",                "VAC2_INSERT_ERROR"),
+            ("TBP_200.OZAEHLRICHTUNGSFEHLER",  "TBP200_ENCODER_DIRECTION_ERROR"),
+            (".OPRSERRORSOLLOVERMAXLIMIT",      "PRS_POSITION_OVER_MAX_LIMIT"),
+            (".OPRSERRORSOLLOVERMINLIMIT",      "PRS_POSITION_UNDER_MIN_LIMIT"),
+            (".OROLLERROR",                    "CONVEYOR_ROLL_ERROR"),
+            (".E_HSSBLATTVERLAUF",             "HS_BLADE_RUNOUT_FAULT"),
+            (".E_HSSBLATTVERLAUF2",            "HS_BLADE_RUNOUT_FAULT_2"),
+            (".E_BERTUER1OFFEN",               "SAFETY_DOOR_1_OPEN"),
+            (".E_BERTUER2OFFEN",               "SAFETY_DOOR_2_OPEN"),
+        ]
+
+        for symbol, label in BOOL_FAULT_TAGS:
+            try:
+                if self.client.read(symbol=symbol, plc_type=bool_type):
+                    faults.append(label)
+            except Exception:
+                pass
+
+        # ------------------------------------------------------------------ #
+        # 2. Drive ready signals — False = drive tripped/faulted              #
+        # ------------------------------------------------------------------ #
+
+        DRIVE_READY_TAGS = [
+            (".SW_REGLERBEREIT",   "SAW_DRIVE_NOT_READY"),
+            (".PRS_REGLERBEREIT",  "PRS_DRIVE_NOT_READY"),
+        ]
+
+        for symbol, label in DRIVE_READY_TAGS:
+            try:
+                if not self.client.read(symbol=symbol, plc_type=bool_type):
+                    faults.append(label)
+            except Exception:
+                pass
+
+        # NOTE: KEB inverter status words (KEB_HS/SW/PRS/LKT.UMRICHTERSTATUS) are
+        # logged via _log_key_plc_values for observation but NOT used for fault
+        # detection here. The bit mapping for each drive's status word needs to be
+        # confirmed before using it as a fault trigger — e.g. KEB_LKT consistently
+        # reads 0x4F even on a healthy idle machine. Use REGLERBEREIT flags above
+        # as the reliable drive-level fault signal instead.
+
+        if faults:
+            return "FAULT_" + faults[0]
+
+        # ------------------------------------------------------------------ #
+        # 4. Running check                                                    #
+        # ------------------------------------------------------------------ #
+
+        try:
+            if self.client.read(symbol=".PROGRAMMLAEUFT", plc_type=bool_type):
                 return "RUNNING"
-                
-        elif function == "":
+        except Exception:
             pass
-        else:
+
+        # Fallback: axis status register (0 = idle, non-zero = running)
+        try:
+            if str(self.client.read(symbol=".ACHSSTATUS", plc_type=int_type)) != "0":
+                return "RUNNING"
+        except Exception:
             pass
-        return status
+
+        return "IDLE"
 
     def _read_variable(self, variable_name: str, function: str = None) -> str:
         value = ""
@@ -306,14 +461,14 @@ class HolzmanBeckhoff(AbstractDevice):
             return
 
         SYMBOLS = [
+            # --- Machine state ---
             ".PROGRAMMLAEUFT",
-            ".ERRORHSANL",
-            ".DBERROR",
-            ".DBERRORCODE",
-            ".SONDERFEHLER",
-            ".OWARNUNG",
-            ".MANUELL",
+            ".ACHSSTATUS",
             ".PNRNM",
+            ".ZEITPROGZYKLSTART",
+            ".TIMEPROGENDE",
+            ".DBZAEHLER",
+            # --- Active program / cut info ---
             ".CADINFO",
             ".CUTINFO",
             ".MPRO1",
@@ -321,9 +476,50 @@ class HolzmanBeckhoff(AbstractDevice):
             ".MPRO3",
             ".MPRO5",
             ".MPRO7",
-            ".DBZAEHLER",
-            ".TIMEPROGENDE",
-            ".ZEITPROGZYKLSTART",
+            # --- Fault flags ---
+            ".ERRORHSANL",
+            ".DBERROR",
+            ".DBERRORCODE",
+            ".SONDERFEHLER",
+            ".OWARNUNG",
+            ".ZANGENERROR",
+            ".OERRORTIMEOUT",
+            ".OHTANERROR",
+            "VAC2EINS.OERROR",
+            "TBP_200.OZAEHLRICHTUNGSFEHLER",
+            ".OPRSERRORSOLLOVERMAXLIMIT",
+            ".OPRSERRORSOLLOVERMINLIMIT",
+            ".OROLLERROR",
+            ".E_SPANNUNGSAUSFALL",
+            # --- Blade condition ---
+            ".E_HSSBLATTVERLAUF",
+            ".E_HSSBLATTVERLAUF2",
+            "LS18.OHS1ABW",
+            # --- Safety doors ---
+            ".E_BERTUER1OFFEN",
+            ".E_BERTUER2OFFEN",
+            # --- Drive ready signals ---
+            ".SW_REGLERBEREIT",
+            ".PRS_REGLERBEREIT",
+            # --- Servo following errors ---
+            ".SWPOSSCHLEPPFEHLER",
+            ".SWSCHLEPPFEHLER",
+            ".PRSPOSSCHLEPPFEHLER",
+            ".GAPOSSCHLEPPFEHLER",
+            ".LAWSCHLEPPFEHLER",
+            ".VVSPOSSCHLEPPFEHLER",
+            ".VACPOSSCHLEPPFEHLER",
+            ".VACSCHLEPPFEHLER",
+            ".DREHVPOSSCHLEPPFEHLER",
+            # --- KEB inverter status & load ---
+            "KEB_HS.UMRICHTERSTATUS",
+            "KEB_HS.ISTFREQUENZ",
+            "KEB_HS.AKTUELLEAUSLASTUNG",
+            "KEB_SW.SWUMRICHTERSTATUS",
+            "KEB_SW_MATYP180.SWUMRICHTERSTATUS",
+            "KEB_PRS.UMRICHTERSTATUS",
+            "KEB_PRS.ISTDREHMOMENT",
+            "KEB_LKT.UMRICHTERSTATUS",
         ]
 
         for symbol in SYMBOLS:
