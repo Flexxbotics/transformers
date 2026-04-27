@@ -1,0 +1,38 @@
+{
+  "_class": "GenericTCP",
+  "transformer": "GenericTCP",
+  "commands": {
+    "connect": {},
+    "disconnect": {},
+    "send": {
+      "command": "",
+      "terminator": "",
+      "response_time": "",
+      "buffer_size": ""
+    },
+    "send_bytes": {
+      "hex_data": "",
+      "response_time": "",
+      "buffer_size": ""
+    },
+    "receive": {
+      "buffer_size": ""
+    }
+  },
+  "metaData": {
+    "ip_address": "",
+    "port": "",
+    "timeout": "2.0",
+    "retry": "2",
+    "retry_interval": "0.1",
+    "encoding": "utf-8",
+    "response_time": "0.1",
+    "buffer_size": "1024",
+    "command_terminator": "\r\n",
+    "write_template": "{name} {value}",
+    "status_command": "",
+    "status_ok_response": "",
+    "interval_commands": "",
+    "keep_alive": "false"
+  }
+}

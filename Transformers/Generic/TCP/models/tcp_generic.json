@@ -1,0 +1,8 @@
+{
+  "_class": "com.flexxbotics.beans.EquipmentDefinition",
+  "controller": "TCP",
+  "manufacturer": "Generic",
+  "machineModel": "TCP Device",
+  "transformer": "GenericTCP",
+  "type": "Generic"
+}
