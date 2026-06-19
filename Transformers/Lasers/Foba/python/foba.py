@@ -1,23 +1,79 @@
 """
-    Copyright 2025 Flexxbotics, Inc.
+Copyright 2025 Flexxbotics, Inc.
 
-    Licensed under the Apache License, Version 2.0 (the "License");
-    you may not use this file except in compliance with the License.
-    You may obtain a copy of the License at
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
 
-        http://www.apache.org/licenses/LICENSE-2.0
+    http://www.apache.org/licenses/LICENSE-2.0
 
-    Unless required by applicable law or agreed to in writing, software
-    distributed under the License is distributed on an "AS IS" BASIS,
-    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-    See the License for the specific language governing permissions and
-    limitations under the License.
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
 """
+
 from data_models.device import Device
 from protocols.tcp import TCP
 import json
 import base64
 from transformers.abstract_device import AbstractDevice
+from dataclasses import dataclass, field
+from typing import Callable, Any
+from enum import Enum
+
+
+@dataclass(frozen=True)
+class LaserCommand:
+    command: str
+    min_args: int = 0
+    max_args: int | None = 0
+    response_codes: dict[str, str] = field(default_factory=dict)
+
+    def build(self, *args: Any) -> str:
+        self.validate_args(args)
+        if args:
+            return f"{self.keyword}:{';'.join(str(a) for a in args)}"
+        return self.keyword
+
+    def validate_args(self, args: tuple[Any, ...]) -> None:
+        argc = len(args) if args else 0
+
+        if argc < self.min_args:
+            raise ValueError(
+                f"{self.command} requires at least {self.min_args} arg(s), got {argc}"
+            )
+
+        if self.max_args is not None and argc > self.max_args:
+            raise ValueError(
+                f"{self.command} allows at most {self.max_args} arg(s), got {argc}"
+            )
+
+    def parse(self, raw: str) -> dict:
+        parts = raw.strip().split(";")
+        code = parts[0]
+
+        return {
+            "code": code,
+            "meaning": self.response_codes.get(code, "UNKNOWN"),
+            "extra": parts[1:] if len(parts) > 1 else [],
+        }
+
+
+class FobaCmd(Enum):
+    WRITE = LaserCommand("SETVAR", min_args=2, max_args=2)
+    READ = LaserCommand("GETVAR", min_args=1, max_args=1)
+    STATUS = LaserCommand(
+        "GETSTATUS",
+        response_codes={
+            "1": "IDLE",
+            "-1": "OFFLINE",
+            "-5": "RUNNING",
+            "-6": "INVALID FORMAT",
+        },
+    )
+
 
 """
 
@@ -27,6 +83,7 @@ from transformers.abstract_device import AbstractDevice
         2. Make edits directly in the copied file
 
 """
+
 
 class FOBA(AbstractDevice):
 
@@ -46,17 +103,6 @@ class FOBA(AbstractDevice):
         self.port = self.connection_string[1]
 
         self.client = TCP(address=self.address, port=self.port)
-        self.foba_commands = {
-            "write": "SETVAR:",
-            "read": "GETVAR:", #TODO not sure this is correct, check documentation
-            "status": "GETSTATUS",
-            "load_program": "LOADJOB:",
-            "start_job": "STARTJOB",
-            "open_door": "OPENLIFTINGDOOR",
-            "close_door": "CLOSELIFTINGDOOR",
-            "enable_lots": "SETLOTSENABLED:",
-            "set_lot_size": "SETLOTSIZE:"
-        }
 
     def __del__(self):
         pass
@@ -65,7 +111,7 @@ class FOBA(AbstractDevice):
     # DEVICE COMMUNICATION METHODS
     # ############################################################################## #
 
-    def execute_command(self, command_name : str, command_args : str) -> str:
+    def execute_command(self, command_name: str, command_args: str) -> str:
         """
         Executes the command sent to the device.
 
@@ -126,7 +172,7 @@ class FOBA(AbstractDevice):
                 result=result,
                 expected=expected,
                 actual_idx=actual_idx,
-                data_idx=data_idx
+                data_idx=data_idx,
             )
         except Exception as e:
             raise Exception(
@@ -151,7 +197,7 @@ class FOBA(AbstractDevice):
         """
         pass
 
-    def read_status(self, function : str=None) -> str:
+    def read_status(self, function: str = None) -> str:
         """
         Method to read the status of the device
 
@@ -165,11 +211,11 @@ class FOBA(AbstractDevice):
         """
         status = ""
         if function is None:
-            data = self.foba_commands["status"] + "\r\n"
-            result = self.client.send(data=data, encoding="ascii", response_time=0.5)
-            result = result.split(",")
+            data = FobaCmd.STATUS.value.build()
+            raw = self.client.send(data=data, encoding="ascii", response_time=0.5)
+            result = FobaCmd.STATUS.value.parse(raw=raw)["meaning"]
             status = self._process_status(result=result)
-        elif function == "": # Some string
+        elif function == "":  # Some string
             # Write specific function call to read status
             pass
         else:
@@ -177,7 +223,7 @@ class FOBA(AbstractDevice):
 
         return status
 
-    def read_variable(self, variable_name : str, function : str=None) -> str:
+    def read_variable(self, variable_name: str, function: str = None) -> str:
         """
         Method to read the specified variable from the device
 
@@ -195,7 +241,9 @@ class FOBA(AbstractDevice):
         value = ""
         if function is None:
             q_command = self.foba_commands["read"] + " " + str(variable_name) + "\r\n"
-            result = self.client.send(data=q_command, encoding="ascii", response_time=0.5)
+            result = self.client.send(
+                data=q_command, encoding="ascii", response_time=0.5
+            )
             result = result.split(",")
             value = self._process_response(
                 result=result,
@@ -203,7 +251,7 @@ class FOBA(AbstractDevice):
                 actual_idx=0,
                 data_idx=1,
             )
-        elif function == "": # Some string
+        elif function == "":  # Some string
             # Write specific function call to read variable
             pass
         else:
@@ -211,7 +259,9 @@ class FOBA(AbstractDevice):
 
         return value
 
-    def write_variable(self, variable_name : str, variable_value : str, function : str=None) -> str:
+    def write_variable(
+        self, variable_name: str, variable_value: str, function: str = None
+    ) -> str:
         """
         Method to write the specified variable on the device
 
@@ -231,8 +281,16 @@ class FOBA(AbstractDevice):
         """
         value = ""
         if function is None:
-            q_command = self.foba_commands["write"] + str(variable_name) + " " + str(variable_value) + "\r\n"
-            result = self.client.send(data=q_command, encoding="ascii", response_time=0.5)
+            q_command = (
+                self.foba_commands["write"]
+                + str(variable_name)
+                + " "
+                + str(variable_value)
+                + "\r\n"
+            )
+            result = self.client.send(
+                data=q_command, encoding="ascii", response_time=0.5
+            )
             result = result.split(",")
             value = self._process_response(
                 result=result,
@@ -248,7 +306,9 @@ class FOBA(AbstractDevice):
 
         return value
 
-    def write_parameter(self, parameter_name : str, parameter_value : str, function : str=None) -> str:
+    def write_parameter(
+        self, parameter_name: str, parameter_value: str, function: str = None
+    ) -> str:
         """
         Method to write the specified parameter on the device
 
@@ -268,8 +328,16 @@ class FOBA(AbstractDevice):
         """
         value = ""
         if function is None:
-            q_command = self.foba_commands["write"] + str(parameter_name) + " " + str(parameter_value) + "\r\n"
-            result = self.client.send(data=q_command, encoding="ascii", response_time=0.5)
+            q_command = (
+                self.foba_commands["write"]
+                + str(parameter_name)
+                + " "
+                + str(parameter_value)
+                + "\r\n"
+            )
+            result = self.client.send(
+                data=q_command, encoding="ascii", response_time=0.5
+            )
             result = result.split(",")
             value = self._process_response(
                 result=result,
@@ -285,7 +353,7 @@ class FOBA(AbstractDevice):
 
         return value
 
-    def read_parameter(self, parameter_name : str, function : str=None) -> str:
+    def read_parameter(self, parameter_name: str, function: str = None) -> str:
         """
         Method to read the specified parameter from the device
 
@@ -303,7 +371,9 @@ class FOBA(AbstractDevice):
         value = ""
         if function is None:
             q_command = self.foba_commands["read"] + " " + str(parameter_name) + "\r\n"
-            result = self.client.send(data=q_command, encoding="ascii", response_time=0.5)
+            result = self.client.send(
+                data=q_command, encoding="ascii", response_time=0.5
+            )
             result = result.split(",")
             value = self._process_response(
                 result=result,
@@ -311,7 +381,7 @@ class FOBA(AbstractDevice):
                 actual_idx=0,
                 data_idx=1,
             )
-        elif function == "": # Some string
+        elif function == "":  # Some string
             # Write specific function call to read variable
             pass
         else:
@@ -332,9 +402,9 @@ class FOBA(AbstractDevice):
         # Return list of available filenames from the device
         self.programs = []
 
-        return self.programs #TODO is this the actual response object we want?
+        return self.programs  # TODO is this the actual response object we want?
 
-    def read_file(self, file_name : str) -> str:
+    def read_file(self, file_name: str) -> str:
         """
         Method to read a file from a device
 
@@ -351,7 +421,7 @@ class FOBA(AbstractDevice):
 
         return base64.b64encode(file_data)
 
-    def write_file(self, file_name : str, file_data : str):
+    def write_file(self, file_name: str, file_data: str):
         """
         Method to write a file to a device
 
@@ -365,7 +435,7 @@ class FOBA(AbstractDevice):
         """
         pass
 
-    def load_file(self, file_name : str):
+    def load_file(self, file_name: str):
         """
         Loads a file into memory on the device
 
@@ -384,26 +454,3 @@ class FOBA(AbstractDevice):
     # any specific functions that are needed to communicate via the transformer. For example,
     # connection methods, read/write methods, specific functions, etc.
     # ############################################################################## #
-
-    def _process_status(self, result : list):
-        print ("Process status: ")
-        print (result)
-        if result[0] == "STATUSBUSY":
-            return result[0]
-        if result[0] == "PROGRAM":
-            return result[2]
-        if result[0] == '':
-            return "BLANKSTRING"
-        if 'STATUSBUSY' in result[0]:
-            return "STATUSBUSY"
-
-        return "ERROR"
-
-    def _process_response(self, result, expected, actual_idx, data_idx):
-        if expected == result[actual_idx]:
-            value = result[data_idx]
-            return value
-        else:
-            self._error(message="Error reading variable from device")
-
-
