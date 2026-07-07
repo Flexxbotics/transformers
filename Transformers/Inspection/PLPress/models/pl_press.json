@@ -1,0 +1,8 @@
+{
+  "_class": "com.flexxbotics.beans.EquipmentDefinition",
+  "controller": "PLPress",
+  "manufacturer": "PL Press",
+  "machineModel": "PL Press",
+  "transformer": "PLPress",
+  "type": "Generic"
+}

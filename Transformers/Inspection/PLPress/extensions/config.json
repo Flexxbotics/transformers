@@ -1,0 +1,9 @@
+{
+  "directory": "C:\\PLPress\\reports",
+  "host": "0.0.0.0",
+  "port": 8757,
+  "pattern": "*.txt",
+  "recursive": false,
+  "token": null,
+  "lookback_hours": 1440
+}

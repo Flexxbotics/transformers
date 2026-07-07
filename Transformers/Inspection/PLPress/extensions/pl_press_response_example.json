@@ -1,0 +1,2995 @@
+{
+  "url": "http://localhost:8757",
+  "ping": {
+    "ok": true,
+    "service": "pl-press-report-server",
+    "directory": "C:\\PLPress\\reports",
+    "port": 8757,
+    "default_lookback_hours": 1440,
+    "server_time": "2026-07-07T14:25:26.849617"
+  },
+  "get_reports": {
+    "directory": "C:\\PLPress\\reports",
+    "count": 1,
+    "reports": {
+      "plpress-1949242ec2a53c80": {
+        "report_id": "plpress-1949242ec2a53c80",
+        "header": {
+          "job_number": "2300652494",
+          "sap_part_number": "100035902",
+          "serial_number": "0000",
+          "columns": [
+            "JobNumber",
+            "SapPartNumber",
+            "TimeStamp",
+            "Height",
+            "Taper Left",
+            "Taper Right",
+            "Total Taper",
+            "Serial Number"
+          ],
+          "first_timestamp": "2026-06-22T19:04:23",
+          "last_timestamp": "2026-06-23T10:36:46"
+        },
+        "measurements": [
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T19:04:23",
+            "height": 4.25979,
+            "taper_left": -0.00032,
+            "taper_right": -0.0003,
+            "total_taper": -0.00062,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T19:04:45",
+            "height": 4.25974,
+            "taper_left": -0.0003,
+            "taper_right": -0.00026,
+            "total_taper": -0.00056,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T19:06:26",
+            "height": 4.25982,
+            "taper_left": -0.00029,
+            "taper_right": -0.00077,
+            "total_taper": -0.00106,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T19:10:01",
+            "height": 4.2598,
+            "taper_left": -0.00053,
+            "taper_right": -0.00066,
+            "total_taper": -0.00119,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T19:13:55",
+            "height": 4.25963,
+            "taper_left": -0.00123,
+            "taper_right": 4e-05,
+            "total_taper": -0.00119,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T19:15:10",
+            "height": 4.25964,
+            "taper_left": -0.00052,
+            "taper_right": -7e-05,
+            "total_taper": -0.00059,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T19:18:48",
+            "height": 4.25961,
+            "taper_left": -0.00035,
+            "taper_right": -0.00039,
+            "total_taper": -0.00074,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T19:20:51",
+            "height": 4.25925,
+            "taper_left": -0.0001,
+            "taper_right": -0.0006,
+            "total_taper": -0.00069,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T19:21:35",
+            "height": 4.25928,
+            "taper_left": -0.00137,
+            "taper_right": 0.00019,
+            "total_taper": -0.00118,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T19:23:41",
+            "height": 4.25959,
+            "taper_left": -0.00085,
+            "taper_right": 2e-05,
+            "total_taper": -0.00083,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T20:21:33",
+            "height": 4.25956,
+            "taper_left": -0.00045,
+            "taper_right": -0.00056,
+            "total_taper": -0.00101,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T20:27:25",
+            "height": 4.25958,
+            "taper_left": 0.00024,
+            "taper_right": -0.00123,
+            "total_taper": -0.00098,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T20:31:21",
+            "height": 4.25953,
+            "taper_left": -0.00103,
+            "taper_right": -5e-05,
+            "total_taper": -0.00108,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T20:34:19",
+            "height": 4.25969,
+            "taper_left": -0.00111,
+            "taper_right": 0.0003,
+            "total_taper": -0.0008,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T20:34:33",
+            "height": 4.25964,
+            "taper_left": -0.00101,
+            "taper_right": 0.00014,
+            "total_taper": -0.00087,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T20:35:19",
+            "height": 4.25961,
+            "taper_left": -0.00088,
+            "taper_right": 7e-05,
+            "total_taper": -0.00081,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T20:38:14",
+            "height": 4.25964,
+            "taper_left": -0.00098,
+            "taper_right": 0.00065,
+            "total_taper": -0.00034,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T20:38:30",
+            "height": 4.25959,
+            "taper_left": -0.00084,
+            "taper_right": 0.00054,
+            "total_taper": -0.0003,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T20:41:53",
+            "height": 4.25953,
+            "taper_left": -0.00072,
+            "taper_right": 0.00045,
+            "total_taper": -0.00027,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T20:42:06",
+            "height": 4.25953,
+            "taper_left": -0.00063,
+            "taper_right": 0.00037,
+            "total_taper": -0.00026,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T20:42:25",
+            "height": 4.25953,
+            "taper_left": -0.00134,
+            "taper_right": 0.00111,
+            "total_taper": -0.00023,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T20:42:53",
+            "height": 4.25977,
+            "taper_left": 0.0004,
+            "taper_right": -0.00143,
+            "total_taper": -0.00103,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T20:43:58",
+            "height": 4.2597,
+            "taper_left": 0.00031,
+            "taper_right": -0.00134,
+            "total_taper": -0.00103,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T20:44:26",
+            "height": 4.25969,
+            "taper_left": -0.00092,
+            "taper_right": -0.00017,
+            "total_taper": -0.00109,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T20:44:51",
+            "height": 4.25964,
+            "taper_left": -0.00088,
+            "taper_right": -0.00025,
+            "total_taper": -0.00113,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T20:45:08",
+            "height": 4.25962,
+            "taper_left": -0.00082,
+            "taper_right": -0.00029,
+            "total_taper": -0.0011,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T20:45:49",
+            "height": 4.25977,
+            "taper_left": -0.00197,
+            "taper_right": 0.00129,
+            "total_taper": -0.00068,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T20:47:42",
+            "height": 4.25968,
+            "taper_left": -0.00167,
+            "taper_right": 0.00106,
+            "total_taper": -0.00062,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T20:49:20",
+            "height": 4.25968,
+            "taper_left": -0.00192,
+            "taper_right": 0.00097,
+            "total_taper": -0.00095,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T20:51:18",
+            "height": 4.25962,
+            "taper_left": -0.00129,
+            "taper_right": 0.00024,
+            "total_taper": -0.00105,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T20:51:32",
+            "height": 4.2596,
+            "taper_left": -0.00119,
+            "taper_right": 0.00014,
+            "total_taper": -0.00104,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T20:52:09",
+            "height": 4.25959,
+            "taper_left": -0.00112,
+            "taper_right": 9e-05,
+            "total_taper": -0.00103,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T20:52:23",
+            "height": 4.25959,
+            "taper_left": -0.00105,
+            "taper_right": 8e-05,
+            "total_taper": -0.00097,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T20:53:11",
+            "height": 4.2594,
+            "taper_left": -0.00125,
+            "taper_right": 0.00048,
+            "total_taper": -0.00077,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T20:53:59",
+            "height": 4.25949,
+            "taper_left": -0.0002,
+            "taper_right": -0.0007,
+            "total_taper": -0.00089,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T20:55:18",
+            "height": 4.25951,
+            "taper_left": -0.00049,
+            "taper_right": 9e-05,
+            "total_taper": -0.00041,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T20:56:11",
+            "height": 4.25953,
+            "taper_left": -0.00227,
+            "taper_right": 0.0013,
+            "total_taper": -0.00097,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T20:59:10",
+            "height": 4.25952,
+            "taper_left": -0.00182,
+            "taper_right": 0.00086,
+            "total_taper": -0.00096,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T21:13:13",
+            "height": 4.25958,
+            "taper_left": -0.00019,
+            "taper_right": 0.00045,
+            "total_taper": 0.00026,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T21:13:48",
+            "height": 4.25951,
+            "taper_left": -8e-05,
+            "taper_right": 0.00036,
+            "total_taper": 0.00027,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T21:14:11",
+            "height": 4.2597,
+            "taper_left": -0.00081,
+            "taper_right": 0.00115,
+            "total_taper": 0.00035,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T21:14:39",
+            "height": 4.25963,
+            "taper_left": -0.00063,
+            "taper_right": 0.00101,
+            "total_taper": 0.00039,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T21:22:28",
+            "height": 4.25962,
+            "taper_left": -0.00143,
+            "taper_right": 0.00209,
+            "total_taper": 0.00066,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T21:22:51",
+            "height": 4.2596,
+            "taper_left": -0.00118,
+            "taper_right": 0.00166,
+            "total_taper": 0.00048,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T21:23:15",
+            "height": 4.25957,
+            "taper_left": -0.00094,
+            "taper_right": 0.0014,
+            "total_taper": 0.00046,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T21:23:37",
+            "height": 4.25956,
+            "taper_left": -0.00077,
+            "taper_right": 0.00123,
+            "total_taper": 0.00045,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T21:24:08",
+            "height": 4.25955,
+            "taper_left": -0.00066,
+            "taper_right": 0.00107,
+            "total_taper": 0.00042,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T21:24:35",
+            "height": 4.25955,
+            "taper_left": -0.00056,
+            "taper_right": 0.00097,
+            "total_taper": 0.00041,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T21:24:52",
+            "height": 4.25954,
+            "taper_left": -0.00051,
+            "taper_right": 0.00092,
+            "total_taper": 0.00041,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T21:25:30",
+            "height": 4.25953,
+            "taper_left": -0.00051,
+            "taper_right": 0.00089,
+            "total_taper": 0.00037,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T21:26:46",
+            "height": 4.25951,
+            "taper_left": -0.00051,
+            "taper_right": 0.00088,
+            "total_taper": 0.00037,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T21:27:11",
+            "height": 4.25966,
+            "taper_left": -0.00108,
+            "taper_right": 0.00153,
+            "total_taper": 0.00045,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T21:27:42",
+            "height": 4.25961,
+            "taper_left": -0.00086,
+            "taper_right": 0.00134,
+            "total_taper": 0.00048,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T21:27:57",
+            "height": 4.25959,
+            "taper_left": -0.00071,
+            "taper_right": 0.00122,
+            "total_taper": 0.00051,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T21:28:47",
+            "height": 4.25958,
+            "taper_left": -0.00061,
+            "taper_right": 0.00112,
+            "total_taper": 0.00051,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T21:29:49",
+            "height": 4.25955,
+            "taper_left": -0.00154,
+            "taper_right": 0.00206,
+            "total_taper": 0.00052,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T21:30:40",
+            "height": 4.25955,
+            "taper_left": -0.00117,
+            "taper_right": 0.0017,
+            "total_taper": 0.00053,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T21:31:42",
+            "height": 4.25954,
+            "taper_left": -0.00012,
+            "taper_right": 0.00036,
+            "total_taper": 0.00024,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T21:33:38",
+            "height": 4.25947,
+            "taper_left": -7e-05,
+            "taper_right": 0.0003,
+            "total_taper": 0.00024,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T21:34:42",
+            "height": 4.25953,
+            "taper_left": -0.00106,
+            "taper_right": 0.00165,
+            "total_taper": 0.00059,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T21:34:57",
+            "height": 4.25953,
+            "taper_left": -0.00081,
+            "taper_right": 0.00144,
+            "total_taper": 0.00064,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T21:36:49",
+            "height": 4.25965,
+            "taper_left": 9e-05,
+            "taper_right": -0.00016,
+            "total_taper": -7e-05,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T21:37:05",
+            "height": 4.25959,
+            "taper_left": 0.0001,
+            "taper_right": -0.00014,
+            "total_taper": -4e-05,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T21:37:30",
+            "height": 4.25955,
+            "taper_left": 0.00011,
+            "taper_right": -0.00012,
+            "total_taper": -1e-05,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T21:39:38",
+            "height": 4.25962,
+            "taper_left": -0.00068,
+            "taper_right": 0.00112,
+            "total_taper": 0.00044,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T21:55:21",
+            "height": 4.25952,
+            "taper_left": -0.0005,
+            "taper_right": 0.00096,
+            "total_taper": 0.00047,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T21:55:42",
+            "height": 4.2596,
+            "taper_left": -0.00064,
+            "taper_right": 0.00104,
+            "total_taper": 0.00041,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T21:56:11",
+            "height": 4.25954,
+            "taper_left": -0.00051,
+            "taper_right": 0.00095,
+            "total_taper": 0.00044,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T21:56:26",
+            "height": 4.25953,
+            "taper_left": -0.00044,
+            "taper_right": 0.00087,
+            "total_taper": 0.00042,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T21:57:15",
+            "height": 4.25952,
+            "taper_left": -0.00107,
+            "taper_right": 0.00175,
+            "total_taper": 0.00068,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T21:57:39",
+            "height": 4.25957,
+            "taper_left": 0.00084,
+            "taper_right": -0.00056,
+            "total_taper": 0.00028,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T21:58:00",
+            "height": 4.25952,
+            "taper_left": 0.00079,
+            "taper_right": -0.00045,
+            "total_taper": 0.00035,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T22:14:48",
+            "height": 4.25949,
+            "taper_left": -0.00142,
+            "taper_right": 0.00169,
+            "total_taper": 0.00027,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T22:15:42",
+            "height": 4.25949,
+            "taper_left": -0.00061,
+            "taper_right": 0.00052,
+            "total_taper": -9e-05,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T22:22:57",
+            "height": 4.25965,
+            "taper_left": -0.00023,
+            "taper_right": 0.00032,
+            "total_taper": 9e-05,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T22:23:14",
+            "height": 4.25961,
+            "taper_left": -0.00013,
+            "taper_right": 0.00031,
+            "total_taper": 0.00018,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T22:23:58",
+            "height": 4.25963,
+            "taper_left": -0.00053,
+            "taper_right": 0.0007,
+            "total_taper": 0.00018,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T22:24:16",
+            "height": 4.25958,
+            "taper_left": -0.00045,
+            "taper_right": 0.00066,
+            "total_taper": 0.00021,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T22:25:19",
+            "height": 4.25973,
+            "taper_left": 6e-05,
+            "taper_right": 0.00022,
+            "total_taper": 0.00028,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T22:40:37",
+            "height": 4.25963,
+            "taper_left": 9e-05,
+            "taper_right": 0.00021,
+            "total_taper": 0.0003,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T22:40:50",
+            "height": 4.25963,
+            "taper_left": 0.00011,
+            "taper_right": 0.00023,
+            "total_taper": 0.00034,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T22:41:05",
+            "height": 4.25961,
+            "taper_left": 0.00011,
+            "taper_right": 0.00022,
+            "total_taper": 0.00033,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T22:41:28",
+            "height": 4.25961,
+            "taper_left": 0.0001,
+            "taper_right": 0.00023,
+            "total_taper": 0.00033,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T22:45:34",
+            "height": 4.25959,
+            "taper_left": 0.00047,
+            "taper_right": -0.00055,
+            "total_taper": -8e-05,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T22:49:16",
+            "height": 4.25971,
+            "taper_left": 0.0004,
+            "taper_right": -8e-05,
+            "total_taper": 0.00032,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T22:57:32",
+            "height": 4.25948,
+            "taper_left": -0.00053,
+            "taper_right": 0.00113,
+            "total_taper": 0.0006,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T22:58:19",
+            "height": 4.2596,
+            "taper_left": -0.00032,
+            "taper_right": 0.00053,
+            "total_taper": 0.0002,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T22:58:35",
+            "height": 4.25954,
+            "taper_left": -0.00029,
+            "taper_right": 0.00048,
+            "total_taper": 0.00019,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T23:07:17",
+            "height": 4.2595,
+            "taper_left": -0.00025,
+            "taper_right": 0.00029,
+            "total_taper": 4e-05,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T23:08:14",
+            "height": 4.25952,
+            "taper_left": 0.00019,
+            "taper_right": 0.00013,
+            "total_taper": 0.00032,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T23:09:08",
+            "height": 4.25963,
+            "taper_left": -0.00083,
+            "taper_right": 0.00107,
+            "total_taper": 0.00023,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T23:10:01",
+            "height": 4.25958,
+            "taper_left": 0.00053,
+            "taper_right": -0.00023,
+            "total_taper": 0.0003,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T23:10:58",
+            "height": 4.25964,
+            "taper_left": -0.0003,
+            "taper_right": 0.00046,
+            "total_taper": 0.00017,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T23:11:12",
+            "height": 4.2596,
+            "taper_left": -0.00027,
+            "taper_right": 0.00039,
+            "total_taper": 0.00012,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T23:12:00",
+            "height": 4.2596,
+            "taper_left": -0.0015,
+            "taper_right": 0.00175,
+            "total_taper": 0.00025,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T23:13:01",
+            "height": 4.25952,
+            "taper_left": -0.00083,
+            "taper_right": 0.00071,
+            "total_taper": -0.00012,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T23:14:55",
+            "height": 4.25963,
+            "taper_left": 0.00028,
+            "taper_right": -0.00044,
+            "total_taper": -0.00016,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T23:15:55",
+            "height": 4.25964,
+            "taper_left": -3e-05,
+            "taper_right": -0.00012,
+            "total_taper": -0.00015,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T23:16:52",
+            "height": 4.25961,
+            "taper_left": 0.00069,
+            "taper_right": -0.0003,
+            "total_taper": 0.00039,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T23:18:13",
+            "height": 4.25953,
+            "taper_left": 0.00067,
+            "taper_right": -0.00058,
+            "total_taper": 9e-05,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T23:53:12",
+            "height": 4.25894,
+            "taper_left": 0.00036,
+            "taper_right": 0.00012,
+            "total_taper": 0.00049,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-22T23:56:55",
+            "height": 4.25935,
+            "taper_left": 0.00034,
+            "taper_right": 0.00029,
+            "total_taper": 0.00062,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T00:00:22",
+            "height": 4.25932,
+            "taper_left": 0.00039,
+            "taper_right": 6e-05,
+            "total_taper": 0.00045,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T00:01:18",
+            "height": 4.25949,
+            "taper_left": 0.00015,
+            "taper_right": 0.00077,
+            "total_taper": 0.00092,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T00:02:18",
+            "height": 4.25939,
+            "taper_left": 0.00014,
+            "taper_right": 0.00036,
+            "total_taper": 0.0005,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T00:03:16",
+            "height": 4.25947,
+            "taper_left": 0.00013,
+            "taper_right": 0.00037,
+            "total_taper": 0.0005,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T00:04:11",
+            "height": 4.2594,
+            "taper_left": 0.00017,
+            "taper_right": 0.00053,
+            "total_taper": 0.0007,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T00:05:18",
+            "height": 4.25958,
+            "taper_left": -0.00022,
+            "taper_right": 0.00086,
+            "total_taper": 0.00065,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T00:06:20",
+            "height": 4.25943,
+            "taper_left": 0.00019,
+            "taper_right": 0.00054,
+            "total_taper": 0.00072,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T00:07:22",
+            "height": 4.25933,
+            "taper_left": 7e-05,
+            "taper_right": 0.00042,
+            "total_taper": 0.00048,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T00:08:13",
+            "height": 4.2595,
+            "taper_left": 9e-05,
+            "taper_right": 0.00067,
+            "total_taper": 0.00076,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T00:09:12",
+            "height": 4.25957,
+            "taper_left": 0.00023,
+            "taper_right": 0.00041,
+            "total_taper": 0.00064,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T00:10:11",
+            "height": 4.25948,
+            "taper_left": 0.00037,
+            "taper_right": -4e-05,
+            "total_taper": 0.00033,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T00:11:07",
+            "height": 4.25956,
+            "taper_left": -0.00012,
+            "taper_right": 0.00065,
+            "total_taper": 0.00053,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T00:12:04",
+            "height": 4.25943,
+            "taper_left": 0.00044,
+            "taper_right": -0.00011,
+            "total_taper": 0.00033,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T00:13:05",
+            "height": 4.2595,
+            "taper_left": 0.00022,
+            "taper_right": 1e-05,
+            "total_taper": 0.00023,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T00:14:01",
+            "height": 4.25956,
+            "taper_left": 0.00034,
+            "taper_right": 0.00027,
+            "total_taper": 0.00061,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T00:15:00",
+            "height": 4.25937,
+            "taper_left": 0.00048,
+            "taper_right": -5e-05,
+            "total_taper": 0.00043,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T00:15:54",
+            "height": 4.25954,
+            "taper_left": -0.00036,
+            "taper_right": 0.00101,
+            "total_taper": 0.00064,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T00:16:56",
+            "height": 4.25934,
+            "taper_left": 0.00039,
+            "taper_right": 0.00018,
+            "total_taper": 0.00057,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T00:18:00",
+            "height": 4.25949,
+            "taper_left": 0.00016,
+            "taper_right": 0.00049,
+            "total_taper": 0.00065,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T00:19:05",
+            "height": 4.25944,
+            "taper_left": 0.00063,
+            "taper_right": -0.00022,
+            "total_taper": 0.00041,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T00:20:00",
+            "height": 4.25949,
+            "taper_left": 2e-05,
+            "taper_right": 0.00057,
+            "total_taper": 0.00059,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T00:23:45",
+            "height": 4.2595,
+            "taper_left": -0.0004,
+            "taper_right": 0.00117,
+            "total_taper": 0.00077,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T00:24:51",
+            "height": 4.25932,
+            "taper_left": -0.00027,
+            "taper_right": 0.00053,
+            "total_taper": 0.00025,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T00:25:10",
+            "height": 4.25936,
+            "taper_left": 0.00028,
+            "taper_right": 0.00015,
+            "total_taper": 0.00043,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T00:26:04",
+            "height": 4.25951,
+            "taper_left": 0.00061,
+            "taper_right": -0.00018,
+            "total_taper": 0.00043,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T01:20:12",
+            "height": 4.25942,
+            "taper_left": 0.00047,
+            "taper_right": 0.00021,
+            "total_taper": 0.00067,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T01:20:32",
+            "height": 4.25947,
+            "taper_left": 0.00049,
+            "taper_right": 6e-05,
+            "total_taper": 0.00054,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T01:23:58",
+            "height": 4.2595,
+            "taper_left": 0.00034,
+            "taper_right": 0.00035,
+            "total_taper": 0.00069,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T01:26:53",
+            "height": 4.25953,
+            "taper_left": 0.0001,
+            "taper_right": 0.00037,
+            "total_taper": 0.00047,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T01:28:25",
+            "height": 4.25963,
+            "taper_left": 0.00051,
+            "taper_right": -0.00019,
+            "total_taper": 0.00032,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T01:29:43",
+            "height": 4.25952,
+            "taper_left": 0.0,
+            "taper_right": 0.00048,
+            "total_taper": 0.00048,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T01:32:25",
+            "height": 4.25954,
+            "taper_left": 0.00064,
+            "taper_right": -8e-05,
+            "total_taper": 0.00056,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T01:32:54",
+            "height": 4.25966,
+            "taper_left": -0.00033,
+            "taper_right": 0.00086,
+            "total_taper": 0.00054,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T02:14:59",
+            "height": 4.25959,
+            "taper_left": 5e-05,
+            "taper_right": 0.00048,
+            "total_taper": 0.00054,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T02:15:53",
+            "height": 4.25953,
+            "taper_left": 0.00035,
+            "taper_right": 0.00042,
+            "total_taper": 0.00077,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T02:17:13",
+            "height": 4.25955,
+            "taper_left": 0.00058,
+            "taper_right": 9e-05,
+            "total_taper": 0.00067,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T02:18:14",
+            "height": 4.25959,
+            "taper_left": 5e-05,
+            "taper_right": 0.00048,
+            "total_taper": 0.00053,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T02:19:17",
+            "height": 4.25959,
+            "taper_left": 1e-05,
+            "taper_right": 0.00052,
+            "total_taper": 0.00054,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T02:20:11",
+            "height": 4.25965,
+            "taper_left": 0.00015,
+            "taper_right": 0.00039,
+            "total_taper": 0.00054,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T02:21:14",
+            "height": 4.25969,
+            "taper_left": 1e-05,
+            "taper_right": 0.00044,
+            "total_taper": 0.00046,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T02:22:08",
+            "height": 4.25961,
+            "taper_left": 0.0003,
+            "taper_right": 0.00031,
+            "total_taper": 0.00062,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T02:23:16",
+            "height": 4.25972,
+            "taper_left": 0.00013,
+            "taper_right": 0.00059,
+            "total_taper": 0.00071,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T02:24:14",
+            "height": 4.25968,
+            "taper_left": 0.00022,
+            "taper_right": 0.00035,
+            "total_taper": 0.00056,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T02:25:13",
+            "height": 4.25967,
+            "taper_left": 0.00012,
+            "taper_right": 0.00046,
+            "total_taper": 0.00058,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T02:26:16",
+            "height": 4.25975,
+            "taper_left": 0.00016,
+            "taper_right": 0.00013,
+            "total_taper": 0.0003,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T02:27:10",
+            "height": 4.25962,
+            "taper_left": 0.00037,
+            "taper_right": 3e-05,
+            "total_taper": 0.0004,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T02:28:16",
+            "height": 4.25972,
+            "taper_left": 0.00014,
+            "taper_right": 0.00027,
+            "total_taper": 0.00041,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T02:29:19",
+            "height": 4.25956,
+            "taper_left": 6e-05,
+            "taper_right": 0.00054,
+            "total_taper": 0.0006,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T02:30:25",
+            "height": 4.25963,
+            "taper_left": 0.0,
+            "taper_right": 0.00046,
+            "total_taper": 0.00046,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T02:33:22",
+            "height": 4.25954,
+            "taper_left": 0.00066,
+            "taper_right": 0.00095,
+            "total_taper": 0.00161,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T03:52:29",
+            "height": 4.25954,
+            "taper_left": 0.00096,
+            "taper_right": 0.00097,
+            "total_taper": 0.00193,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T03:59:08",
+            "height": 4.25958,
+            "taper_left": 0.00039,
+            "taper_right": 0.00129,
+            "total_taper": 0.00167,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T04:11:43",
+            "height": 4.25963,
+            "taper_left": 0.00093,
+            "taper_right": 0.00087,
+            "total_taper": 0.0018,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T04:12:38",
+            "height": 4.25954,
+            "taper_left": 0.00083,
+            "taper_right": 0.00078,
+            "total_taper": 0.00161,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T04:13:36",
+            "height": 4.25959,
+            "taper_left": 0.00082,
+            "taper_right": 0.00089,
+            "total_taper": 0.00171,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T04:14:33",
+            "height": 4.25953,
+            "taper_left": 0.00054,
+            "taper_right": 0.00114,
+            "total_taper": 0.00167,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T04:15:26",
+            "height": 4.25968,
+            "taper_left": -0.00091,
+            "taper_right": 0.00209,
+            "total_taper": 0.00118,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T05:24:59",
+            "height": 4.25954,
+            "taper_left": 0.00099,
+            "taper_right": 0.00035,
+            "total_taper": 0.00133,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T05:26:04",
+            "height": 4.25953,
+            "taper_left": 0.0007,
+            "taper_right": 0.00123,
+            "total_taper": 0.00193,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T05:27:00",
+            "height": 4.25953,
+            "taper_left": 0.0004,
+            "taper_right": 0.00132,
+            "total_taper": 0.00173,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T05:27:56",
+            "height": 4.25962,
+            "taper_left": 0.00062,
+            "taper_right": 0.00128,
+            "total_taper": 0.0019,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T05:28:54",
+            "height": 4.25954,
+            "taper_left": 0.00091,
+            "taper_right": 0.0008,
+            "total_taper": 0.00171,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T05:29:50",
+            "height": 4.2596,
+            "taper_left": 0.00038,
+            "taper_right": 0.00131,
+            "total_taper": 0.00169,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T05:30:50",
+            "height": 4.25953,
+            "taper_left": 0.0004,
+            "taper_right": 0.00136,
+            "total_taper": 0.00175,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T05:31:46",
+            "height": 4.25965,
+            "taper_left": 0.00074,
+            "taper_right": 0.00107,
+            "total_taper": 0.00181,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T05:32:43",
+            "height": 4.25963,
+            "taper_left": 0.00083,
+            "taper_right": 0.00102,
+            "total_taper": 0.00185,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T05:33:43",
+            "height": 4.25949,
+            "taper_left": 0.00071,
+            "taper_right": 0.00083,
+            "total_taper": 0.00155,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T05:35:42",
+            "height": 4.2595,
+            "taper_left": 0.00089,
+            "taper_right": 0.00095,
+            "total_taper": 0.00185,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T05:36:43",
+            "height": 4.25947,
+            "taper_left": 0.0006,
+            "taper_right": 0.00107,
+            "total_taper": 0.00167,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T05:37:53",
+            "height": 4.25953,
+            "taper_left": 0.00062,
+            "taper_right": 0.00114,
+            "total_taper": 0.00176,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T05:39:05",
+            "height": 4.25951,
+            "taper_left": 0.00054,
+            "taper_right": 0.00122,
+            "total_taper": 0.00176,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T05:40:05",
+            "height": 4.25951,
+            "taper_left": 0.00097,
+            "taper_right": 0.00079,
+            "total_taper": 0.00176,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T05:41:03",
+            "height": 4.25967,
+            "taper_left": 0.0009,
+            "taper_right": 0.00086,
+            "total_taper": 0.00176,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T05:41:57",
+            "height": 4.25969,
+            "taper_left": 0.00103,
+            "taper_right": 0.0007,
+            "total_taper": 0.00173,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T05:42:56",
+            "height": 4.25978,
+            "taper_left": 0.00022,
+            "taper_right": 0.0016,
+            "total_taper": 0.00181,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T05:43:35",
+            "height": 4.25958,
+            "taper_left": 0.00072,
+            "taper_right": 0.00107,
+            "total_taper": 0.00179,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T05:46:50",
+            "height": 4.25966,
+            "taper_left": 0.00041,
+            "taper_right": 0.00137,
+            "total_taper": 0.00177,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T05:47:52",
+            "height": 4.25957,
+            "taper_left": -0.0002,
+            "taper_right": 0.00173,
+            "total_taper": 0.00153,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T05:48:48",
+            "height": 4.2597,
+            "taper_left": 0.00023,
+            "taper_right": 0.00134,
+            "total_taper": 0.00157,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T05:49:49",
+            "height": 4.25958,
+            "taper_left": 0.00077,
+            "taper_right": 0.00069,
+            "total_taper": 0.00146,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T05:50:44",
+            "height": 4.25963,
+            "taper_left": 0.00117,
+            "taper_right": 0.00055,
+            "total_taper": 0.00172,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T05:51:44",
+            "height": 4.25951,
+            "taper_left": 0.0007,
+            "taper_right": 0.00074,
+            "total_taper": 0.00144,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T05:52:45",
+            "height": 4.25959,
+            "taper_left": 0.00093,
+            "taper_right": 0.0008,
+            "total_taper": 0.00173,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T05:53:45",
+            "height": 4.25949,
+            "taper_left": 0.00065,
+            "taper_right": 0.00081,
+            "total_taper": 0.00146,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T05:54:41",
+            "height": 4.25949,
+            "taper_left": 0.00045,
+            "taper_right": 0.0012,
+            "total_taper": 0.00165,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T05:55:43",
+            "height": 4.25928,
+            "taper_left": 0.00161,
+            "taper_right": 0.00055,
+            "total_taper": 0.00216,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T05:56:41",
+            "height": 4.25955,
+            "taper_left": 0.00093,
+            "taper_right": 0.00085,
+            "total_taper": 0.00178,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T05:57:37",
+            "height": 4.25944,
+            "taper_left": 0.00091,
+            "taper_right": 0.00089,
+            "total_taper": 0.00181,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T05:58:37",
+            "height": 4.25951,
+            "taper_left": 0.00079,
+            "taper_right": 0.001,
+            "total_taper": 0.00179,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T05:59:40",
+            "height": 4.25954,
+            "taper_left": 0.00065,
+            "taper_right": 0.00095,
+            "total_taper": 0.00159,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T06:00:42",
+            "height": 4.25956,
+            "taper_left": 0.00066,
+            "taper_right": 0.00122,
+            "total_taper": 0.00187,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T06:01:51",
+            "height": 4.25951,
+            "taper_left": 0.00038,
+            "taper_right": 0.00091,
+            "total_taper": 0.00129,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T06:02:51",
+            "height": 4.25948,
+            "taper_left": 0.00062,
+            "taper_right": 0.00116,
+            "total_taper": 0.00178,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T06:03:51",
+            "height": 4.25951,
+            "taper_left": 0.00075,
+            "taper_right": 0.00101,
+            "total_taper": 0.00176,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T06:06:55",
+            "height": 4.25947,
+            "taper_left": 0.00054,
+            "taper_right": 0.00119,
+            "total_taper": 0.00173,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T06:07:55",
+            "height": 4.25942,
+            "taper_left": 0.00073,
+            "taper_right": 0.00083,
+            "total_taper": 0.00156,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T06:08:57",
+            "height": 4.25947,
+            "taper_left": 0.00108,
+            "taper_right": 0.00084,
+            "total_taper": 0.00192,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T06:09:57",
+            "height": 4.25952,
+            "taper_left": 0.00042,
+            "taper_right": 0.00108,
+            "total_taper": 0.00151,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T06:11:32",
+            "height": 4.25961,
+            "taper_left": 0.00067,
+            "taper_right": 0.00107,
+            "total_taper": 0.00174,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T06:12:32",
+            "height": 4.25938,
+            "taper_left": 0.00099,
+            "taper_right": 0.00078,
+            "total_taper": 0.00177,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T06:16:22",
+            "height": 4.25951,
+            "taper_left": 0.00061,
+            "taper_right": 0.00111,
+            "total_taper": 0.00172,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T06:17:22",
+            "height": 4.25949,
+            "taper_left": 0.00069,
+            "taper_right": 0.00117,
+            "total_taper": 0.00186,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T06:20:59",
+            "height": 4.25946,
+            "taper_left": 0.00092,
+            "taper_right": 0.00087,
+            "total_taper": 0.00179,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T06:22:06",
+            "height": 4.25947,
+            "taper_left": 0.00091,
+            "taper_right": 0.00072,
+            "total_taper": 0.00163,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T06:24:53",
+            "height": 4.25952,
+            "taper_left": 0.00105,
+            "taper_right": 0.00061,
+            "total_taper": 0.00166,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T06:25:13",
+            "height": 4.25946,
+            "taper_left": 0.00089,
+            "taper_right": 0.00077,
+            "total_taper": 0.00167,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T06:27:43",
+            "height": 4.25948,
+            "taper_left": 0.00101,
+            "taper_right": 0.00087,
+            "total_taper": 0.00187,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T06:31:38",
+            "height": 4.25956,
+            "taper_left": 0.00131,
+            "taper_right": 0.00048,
+            "total_taper": 0.00179,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T06:36:12",
+            "height": 4.25959,
+            "taper_left": 0.00088,
+            "taper_right": 0.00083,
+            "total_taper": 0.00171,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T06:37:03",
+            "height": 4.2596,
+            "taper_left": 0.00048,
+            "taper_right": 0.00119,
+            "total_taper": 0.00167,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T06:37:34",
+            "height": 4.25966,
+            "taper_left": 0.00102,
+            "taper_right": 0.00066,
+            "total_taper": 0.00168,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T06:39:18",
+            "height": 4.25956,
+            "taper_left": 0.00019,
+            "taper_right": 0.00145,
+            "total_taper": 0.00164,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T07:26:43",
+            "height": 4.2597,
+            "taper_left": 0.00066,
+            "taper_right": 0.00122,
+            "total_taper": 0.00188,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T07:32:11",
+            "height": 4.25957,
+            "taper_left": -0.00011,
+            "taper_right": 0.00105,
+            "total_taper": 0.00094,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T07:34:40",
+            "height": 4.25957,
+            "taper_left": 0.0003,
+            "taper_right": 0.00064,
+            "total_taper": 0.00094,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T07:37:13",
+            "height": 4.25958,
+            "taper_left": 3e-05,
+            "taper_right": 0.00085,
+            "total_taper": 0.00088,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T07:38:22",
+            "height": 4.2596,
+            "taper_left": -0.00018,
+            "taper_right": 0.00125,
+            "total_taper": 0.00107,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T07:45:03",
+            "height": 4.25958,
+            "taper_left": -0.00025,
+            "taper_right": 0.00123,
+            "total_taper": 0.00098,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T07:46:53",
+            "height": 4.25949,
+            "taper_left": -8e-05,
+            "taper_right": 0.00107,
+            "total_taper": 0.00099,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T07:48:30",
+            "height": 4.25946,
+            "taper_left": -0.00022,
+            "taper_right": 0.00129,
+            "total_taper": 0.00107,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T07:49:50",
+            "height": 4.2595,
+            "taper_left": -6e-05,
+            "taper_right": 0.00113,
+            "total_taper": 0.00107,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T07:51:22",
+            "height": 4.25951,
+            "taper_left": 0.00015,
+            "taper_right": 0.00098,
+            "total_taper": 0.00113,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T07:52:39",
+            "height": 4.2595,
+            "taper_left": -0.00036,
+            "taper_right": 0.00136,
+            "total_taper": 0.00099,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T07:53:40",
+            "height": 4.2595,
+            "taper_left": -0.0003,
+            "taper_right": 0.00054,
+            "total_taper": 0.00024,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T07:55:34",
+            "height": 4.25948,
+            "taper_left": -0.00032,
+            "taper_right": 0.00094,
+            "total_taper": 0.00061,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T07:56:57",
+            "height": 4.25952,
+            "taper_left": 2e-05,
+            "taper_right": 0.00061,
+            "total_taper": 0.00064,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T07:58:09",
+            "height": 4.25949,
+            "taper_left": -0.0003,
+            "taper_right": 0.00074,
+            "total_taper": 0.00044,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T07:59:05",
+            "height": 4.2595,
+            "taper_left": -0.00015,
+            "taper_right": 0.00067,
+            "total_taper": 0.00052,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T08:00:27",
+            "height": 4.25953,
+            "taper_left": -0.00025,
+            "taper_right": 0.00049,
+            "total_taper": 0.00024,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T08:01:42",
+            "height": 4.25945,
+            "taper_left": -5e-05,
+            "taper_right": 0.00059,
+            "total_taper": 0.00054,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T08:03:22",
+            "height": 4.25956,
+            "taper_left": -3e-05,
+            "taper_right": 0.00084,
+            "total_taper": 0.00082,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T08:04:11",
+            "height": 4.2595,
+            "taper_left": -0.00011,
+            "taper_right": 0.00053,
+            "total_taper": 0.00042,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T08:05:10",
+            "height": 4.25961,
+            "taper_left": -5e-05,
+            "taper_right": 0.00048,
+            "total_taper": 0.00043,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T08:05:57",
+            "height": 4.25947,
+            "taper_left": -0.00016,
+            "taper_right": 0.00061,
+            "total_taper": 0.00045,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T08:06:55",
+            "height": 4.25949,
+            "taper_left": 0.0001,
+            "taper_right": 0.0003,
+            "total_taper": 0.00039,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T08:07:43",
+            "height": 4.25949,
+            "taper_left": 0.00018,
+            "taper_right": 0.00034,
+            "total_taper": 0.00053,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T08:08:40",
+            "height": 4.25946,
+            "taper_left": -1e-05,
+            "taper_right": 0.00078,
+            "total_taper": 0.00077,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T08:09:43",
+            "height": 4.25947,
+            "taper_left": 0.00032,
+            "taper_right": -9e-05,
+            "total_taper": 0.00023,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T08:10:33",
+            "height": 4.25947,
+            "taper_left": 3e-05,
+            "taper_right": 0.00027,
+            "total_taper": 0.0003,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T08:11:27",
+            "height": 4.25948,
+            "taper_left": -5e-05,
+            "taper_right": 0.00065,
+            "total_taper": 0.0006,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T08:12:50",
+            "height": 4.25937,
+            "taper_left": 0.00016,
+            "taper_right": 0.0003,
+            "total_taper": 0.00046,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T08:13:49",
+            "height": 4.25945,
+            "taper_left": 2e-05,
+            "taper_right": 0.00063,
+            "total_taper": 0.00065,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T08:15:46",
+            "height": 4.2594,
+            "taper_left": 6e-05,
+            "taper_right": 0.00052,
+            "total_taper": 0.00058,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T08:17:50",
+            "height": 4.25946,
+            "taper_left": -0.00014,
+            "taper_right": 0.00056,
+            "total_taper": 0.00042,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T08:18:45",
+            "height": 4.25953,
+            "taper_left": 4e-05,
+            "taper_right": 0.0006,
+            "total_taper": 0.00064,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T08:19:37",
+            "height": 4.25944,
+            "taper_left": -3e-05,
+            "taper_right": 0.0005,
+            "total_taper": 0.00047,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T08:20:33",
+            "height": 4.2594,
+            "taper_left": 6e-05,
+            "taper_right": 0.00042,
+            "total_taper": 0.00048,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T08:22:19",
+            "height": 4.2595,
+            "taper_left": 0.00026,
+            "taper_right": 0.00024,
+            "total_taper": 0.0005,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T08:24:41",
+            "height": 4.25952,
+            "taper_left": -3e-05,
+            "taper_right": 0.00051,
+            "total_taper": 0.00048,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T08:25:36",
+            "height": 4.25945,
+            "taper_left": -0.00018,
+            "taper_right": 0.00077,
+            "total_taper": 0.00059,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T08:28:57",
+            "height": 4.25944,
+            "taper_left": 0.00016,
+            "taper_right": 0.00048,
+            "total_taper": 0.00063,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T08:29:51",
+            "height": 4.25944,
+            "taper_left": 0.00045,
+            "taper_right": 6e-05,
+            "total_taper": 0.00052,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T08:31:00",
+            "height": 4.25949,
+            "taper_left": 0.00094,
+            "taper_right": 7e-05,
+            "total_taper": 0.00101,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T08:32:07",
+            "height": 4.25944,
+            "taper_left": 0.00036,
+            "taper_right": 0.00026,
+            "total_taper": 0.00063,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T08:33:22",
+            "height": 4.25954,
+            "taper_left": -0.00022,
+            "taper_right": 0.00107,
+            "total_taper": 0.00086,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T08:34:24",
+            "height": 4.25955,
+            "taper_left": 0.00014,
+            "taper_right": 0.00035,
+            "total_taper": 0.00049,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T08:35:54",
+            "height": 4.25955,
+            "taper_left": -0.0014,
+            "taper_right": 0.00187,
+            "total_taper": 0.00047,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T08:41:13",
+            "height": 4.2595,
+            "taper_left": 3e-05,
+            "taper_right": 0.00042,
+            "total_taper": 0.00045,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T09:59:50",
+            "height": 4.25955,
+            "taper_left": -0.00099,
+            "taper_right": 0.00114,
+            "total_taper": 0.00016,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T10:00:46",
+            "height": 4.25961,
+            "taper_left": 0.0002,
+            "taper_right": 0.00051,
+            "total_taper": 0.00071,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T10:01:50",
+            "height": 4.25955,
+            "taper_left": -0.00026,
+            "taper_right": 0.00075,
+            "total_taper": 0.00049,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T10:02:37",
+            "height": 4.25966,
+            "taper_left": -0.00117,
+            "taper_right": 0.00131,
+            "total_taper": 0.00013,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T10:03:40",
+            "height": 4.25959,
+            "taper_left": 0.0003,
+            "taper_right": 0.00054,
+            "total_taper": 0.00084,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T10:04:35",
+            "height": 4.25961,
+            "taper_left": 3e-05,
+            "taper_right": 0.0003,
+            "total_taper": 0.00033,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T10:06:04",
+            "height": 4.25954,
+            "taper_left": 5e-05,
+            "taper_right": 0.00042,
+            "total_taper": 0.00047,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T10:07:10",
+            "height": 4.25956,
+            "taper_left": -2e-05,
+            "taper_right": 0.00049,
+            "total_taper": 0.00047,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T10:08:06",
+            "height": 4.25951,
+            "taper_left": 0.00022,
+            "taper_right": 0.00026,
+            "total_taper": 0.00048,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T10:09:08",
+            "height": 4.25977,
+            "taper_left": -0.00104,
+            "taper_right": -0.00098,
+            "total_taper": -0.00202,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T10:10:08",
+            "height": 4.25958,
+            "taper_left": -0.00032,
+            "taper_right": 0.00064,
+            "total_taper": 0.00032,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T10:10:59",
+            "height": 4.25951,
+            "taper_left": 0.00013,
+            "taper_right": 0.00033,
+            "total_taper": 0.00047,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T10:11:45",
+            "height": 4.25941,
+            "taper_left": 0.00012,
+            "taper_right": 0.00074,
+            "total_taper": 0.00086,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T10:13:47",
+            "height": 4.25951,
+            "taper_left": 0.0003,
+            "taper_right": 0.00025,
+            "total_taper": 0.00055,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T10:16:11",
+            "height": 4.2596,
+            "taper_left": -6e-05,
+            "taper_right": 0.00058,
+            "total_taper": 0.00052,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T10:17:58",
+            "height": 4.25951,
+            "taper_left": 0.00021,
+            "taper_right": 0.00024,
+            "total_taper": 0.00045,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T10:19:03",
+            "height": 4.25948,
+            "taper_left": 0.00143,
+            "taper_right": -0.00047,
+            "total_taper": 0.00096,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T10:20:07",
+            "height": 4.25949,
+            "taper_left": 0.00019,
+            "taper_right": 0.00046,
+            "total_taper": 0.00066,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T10:20:58",
+            "height": 4.25959,
+            "taper_left": -0.00027,
+            "taper_right": 0.00063,
+            "total_taper": 0.00036,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T10:21:58",
+            "height": 4.25952,
+            "taper_left": 0.00312,
+            "taper_right": -0.00199,
+            "total_taper": 0.00113,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T10:22:44",
+            "height": 4.25948,
+            "taper_left": 7e-05,
+            "taper_right": 0.0006,
+            "total_taper": 0.00067,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T10:23:44",
+            "height": 4.25954,
+            "taper_left": -7e-05,
+            "taper_right": 0.00042,
+            "total_taper": 0.00035,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T10:24:39",
+            "height": 4.25964,
+            "taper_left": -5e-05,
+            "taper_right": 0.00065,
+            "total_taper": 0.0006,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T10:25:32",
+            "height": 4.25957,
+            "taper_left": 7e-05,
+            "taper_right": 0.00025,
+            "total_taper": 0.00032,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T10:26:24",
+            "height": 4.25953,
+            "taper_left": -0.00018,
+            "taper_right": 0.00076,
+            "total_taper": 0.00058,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T10:28:19",
+            "height": 4.25956,
+            "taper_left": 0.00039,
+            "taper_right": 0.00012,
+            "total_taper": 0.00051,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T10:29:10",
+            "height": 4.25957,
+            "taper_left": -0.00016,
+            "taper_right": 0.00067,
+            "total_taper": 0.00052,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T10:30:14",
+            "height": 4.25959,
+            "taper_left": 1e-05,
+            "taper_right": 0.00085,
+            "total_taper": 0.00087,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T10:31:04",
+            "height": 4.25945,
+            "taper_left": 0.00246,
+            "taper_right": -0.00143,
+            "total_taper": 0.00103,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T10:32:01",
+            "height": 4.2595,
+            "taper_left": 0.00066,
+            "taper_right": 0.00021,
+            "total_taper": 0.00086,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T10:32:56",
+            "height": 4.25958,
+            "taper_left": -0.00012,
+            "taper_right": 0.00037,
+            "total_taper": 0.00025,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T10:33:51",
+            "height": 4.25954,
+            "taper_left": 2e-05,
+            "taper_right": 0.00041,
+            "total_taper": 0.00043,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T10:34:43",
+            "height": 4.2596,
+            "taper_left": 0.00021,
+            "taper_right": 0.00028,
+            "total_taper": 0.00049,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T10:35:36",
+            "height": 4.25952,
+            "taper_left": 0.0,
+            "taper_right": 0.00045,
+            "total_taper": 0.00044,
+            "serial_number": "0000"
+          },
+          {
+            "job_number": "2300652494",
+            "sap_part_number": "100035902",
+            "timestamp": "2026-06-23T10:36:46",
+            "height": 4.25953,
+            "taper_left": 0.00012,
+            "taper_right": 0.00039,
+            "total_taper": 0.0005,
+            "serial_number": "0000"
+          }
+        ],
+        "measurement_count": 295,
+        "source_file": "2300652494-2050-PL.txt",
+        "path": "C:\\PLPress\\reports\\2300652494-2050-PL.txt",
+        "file_modified": "2026-07-07T13:53:19.164188",
+        "file_modified_epoch": 1783446799.1641881
+      }
+    },
+    "errors": []
+  }
+}

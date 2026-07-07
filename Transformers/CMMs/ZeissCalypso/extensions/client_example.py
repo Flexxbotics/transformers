@@ -112,30 +112,27 @@ if __name__ == "__main__":
     ap.add_argument("--url", default="http://localhost:8756", help="Base URL of the report server")
     ap.add_argument("--token", default=None, help="X-Auth-Token if the server requires one")
     ap.add_argument("--hours", type=float, default=None, help="Only reports modified within the last N hours")
-    ap.add_argument("--summary", action="store_true",
-                    help="Print only a one-line summary per report instead of the full JSON")
+    ap.add_argument("--out", default=None,
+                    help="Also write the full JSON response to this file")
     args = ap.parse_args()
 
     c = CalypsoReportClient(args.url, token=args.token)
-    print("ping:", json.dumps(c.ping(), indent=2))
 
     filters: Dict[str, Any] = {}
     if args.hours is not None:
         filters["modified_within_hours"] = args.hours
-    result = c.get_reports(**filters)
-    print(f"\n{result['count']} report(s) found in {result['directory']}")
 
-    # One-line summary per report.
-    for report_id, report in result["reports"].items():
-        header = report["header"]
-        print(
-            f"  {report_id}  part={header.get('part_name')}  "
-            f"ident={header.get('part_ident')}  chars={report['characteristic_count']}  "
-            f"red={header.get('num_values_red')}"
-        )
+    # Full response captured in one object so it can be sent to a developer.
+    output = {
+        "url": c.base_url,
+        "ping": c.ping(),
+        "get_reports": c.get_reports(**filters),
+    }
 
-    # Full JSON structure of each record (default; suppress with --summary).
-    if not args.summary:
-        for report_id, report in result["reports"].items():
-            print(f"\n===== {report_id} =====")
-            print(json.dumps(report, indent=2))
+    rendered = json.dumps(output, indent=2)
+    print(rendered)
+
+    if args.out:
+        with open(args.out, "w", encoding="utf-8") as fh:
+            fh.write(rendered)
+        print(f"\n[written to {args.out}]")

@@ -1,0 +1,21 @@
+{
+  "_class": "PLPress",
+  "transformer": "PLPress",
+  "commands": {
+    "ping": {},
+    "list_reports": {
+      "modified_within_hours": ""
+    },
+    "get_reports": {
+      "modified_within_hours": ""
+    },
+    "get_report": {
+      "file": ""
+    }
+  },
+  "metaData": {
+    "ip_address": "",
+    "port": "8757",
+    "token": ""
+  }
+}

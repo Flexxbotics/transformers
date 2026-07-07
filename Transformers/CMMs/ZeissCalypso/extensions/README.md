@@ -16,12 +16,50 @@ inspection data.
                                     C:\CALYPSO\reports\*.pdf
 ```
 
-## Install & run (on the CMM PC)
+## Deploy on the CMM PC (packaged executable)
+
+The server ships as a single self-contained Windows executable
+(`calypso_report_server.exe`) that bundles Python and every dependency
+(pdfplumber, pdfminer.six, pypdfium2, Pillow). **No Python install is required
+on the target PC** — it runs on any Windows 11 machine.
+
+1. Copy two files to the CMM PC, keeping them **in the same folder** — e.g.
+   `C:\FlexxCalypso\`:
+   - `calypso_report_server.exe`
+   - `config.json`
+2. Edit `config.json` — set `directory` to the folder CALYPSO writes reports to,
+   and set `port`, `lookback_hours`, etc. (see below). Windows paths need
+   escaped backslashes (`\\`).
+3. Double-click the exe, or from a terminal:
+   ```powershell
+   cd C:\FlexxCalypso
+   .\calypso_report_server.exe
+   ```
+   It prints the bind address and loaded settings, then serves until closed.
+4. Allow the port through Windows Firewall so the Flexx host can reach it:
+   ```powershell
+   New-NetFirewallRule -DisplayName "Calypso Report Server" -Direction Inbound `
+     -Protocol TCP -LocalPort 8756 -Action Allow
+   ```
+5. (Optional) Run it as an always-on Windows service with
+   [NSSM](https://nssm.cc/) so it starts on boot and restarts on failure:
+   ```powershell
+   nssm install CalypsoReportServer "C:\FlexxCalypso\calypso_report_server.exe"
+   nssm set     CalypsoReportServer AppDirectory "C:\FlexxCalypso"
+   nssm start   CalypsoReportServer
+   ```
+   Setting `AppDirectory` matters — the exe looks for `config.json` in its own
+   folder.
+
+Verify it's up:  `http://<cmm-pc>:8756/health` (or run
+`client_example.py` from another machine — see below).
+
+## Run from Python source (development)
 
 Requires Python 3.10+.
 
 ```powershell
-cd FlexxConnectServer\src\main\python\adapters\zeiss_calypso_report_server
+cd Transformers\CMMs\ZeissCalypso\extensions
 pip install -r requirements.txt
 
 # Edit config.json (directory, port, look-back...), then just:
@@ -30,9 +68,10 @@ python calypso_report_server.py
 
 ## Configuration file
 
-Settings live in **`config.json`** next to the script (auto-loaded). Point at a
-different file with `--config <path>` or the `CALYPSO_CONFIG` env var. Windows
-paths must use escaped backslashes (`\\`) in JSON.
+Settings live in **`config.json`** next to the executable (or script),
+auto-loaded on startup. Point at a different file with `--config <path>` or the
+`CALYPSO_CONFIG` env var. Windows paths must use escaped backslashes (`\\`) in
+JSON.
 
 ```jsonc
 {
@@ -58,7 +97,7 @@ Any config value can be overridden per-run on the command line
 
 | Flag | Config key | Default | Meaning |
 |------|------------|---------|---------|
-| `--config`, `-c` | — | `config.json` beside script | Path to the JSON config file |
+| `--config`, `-c` | — | `config.json` beside the exe/script | Path to the JSON config file |
 | `--directory`, `-d` | `directory` | *(required)* | Folder containing the report PDFs |
 | `--host` | `host` | `0.0.0.0` | Bind address |
 | `--port`, `-p` | `port` | `8756` | Bind port |
@@ -69,14 +108,38 @@ Any config value can be overridden per-run on the command line
 
 ```powershell
 # One-off run overriding the configured port and look-back:
-python calypso_report_server.py --port 9000 --lookback-hours 8
+.\calypso_report_server.exe --port 9000 --lookback-hours 8
+# (from source:  python calypso_report_server.py --port 9000 --lookback-hours 8)
 ```
 
-Open Windows Firewall for the chosen port so the Flask host can reach it.
-To keep it running across reboots, register it as a Windows service (e.g. with
-[NSSM](https://nssm.cc/)) pointing at `python calypso_report_server.py`.
-
 Health check: `GET http://<pc>:8756/health`.
+
+## Building the executable yourself
+
+The exe is produced with [PyInstaller](https://pyinstaller.org/) on a Windows
+machine that has the dependencies installed. The build config is checked in as
+`calypso_report_server.spec`, so a rebuild is just:
+
+```powershell
+cd Transformers\CMMs\ZeissCalypso\extensions
+pip install -r requirements.txt pyinstaller
+
+pyinstaller --clean --noconfirm calypso_report_server.spec
+```
+
+The standalone exe lands in `dist\calypso_report_server.exe` (~27 MB). The spec
+uses `collect_all` for `pdfminer` and `pypdfium2` (bundling the native pypdfium2
+library and pdfminer's CMap data files, which the parser needs at runtime) and
+`excludes` the large libraries pdfplumber can optionally pull in but that text
+extraction never uses (pandas, numpy, scipy, matplotlib, PyQt5, …) — without
+those excludes the exe balloons past 120 MB.
+
+Notes:
+- Build on the **oldest** Windows version you need to support (an exe built on
+  Win11 runs on Win11+).
+- `config.json` is intentionally **not** bundled — deploy it beside the exe.
+- First launch is slightly slower than subsequent ones: a onefile exe unpacks
+  to a temp directory on startup.
 
 ## JSON-RPC API
 
@@ -163,26 +226,30 @@ Parse a single report by filename (within the directory) or an absolute path.
 
 ## Calling from the Flexx side
 
-`flexx_client_example.py` shows two clients:
+The `ZeissCalypso` transformer (in `../python/zeiss_calypso.py`) is the
+production caller — it forwards its `execute_command_v2` commands to this
+server over the `HttpRest` protocol.
+
+`client_example.py` shows two standalone clients for testing:
 
 1. `CalypsoReportClient` — dependency-free (`requests`), for quick tests:
 
    ```powershell
-   python flexx_client_example.py --url http://<cmm-pc>:8756 --hours 24
+   python client_example.py --url http://<cmm-pc>:8756 --hours 24
    ```
 
-2. `get_reports_via_httprest(base_url)` — routes the call through the existing
+2. `get_reports_via_httprest(base_url)` — routes the call through the
    `protocols.http_rest.HttpRest` protocol, so a device driver pulls reports
    through the same protocol layer as every other device. Run it inside the
    Flask app context (HttpRest reads `current_app.config['logger']`).
 
 ## Notes
 
-- Only the standard library is needed to *run* the server; `pdfplumber` is used
-  only when a PDF is actually parsed.
+- The packaged exe bundles pdfplumber and its native dependencies; the target
+  PC needs no Python install.
 - Time filtering is based on the file's OS modified time on the CMM PC. Naive
   ISO timestamps are interpreted in the server's local time zone (matching the
   `file_modified` values returned to callers).
 - The parser targets the ZEISS CALYPSO PDF layout. To support other export
-  formats later, add a parser module and dispatch on file type in
-  `report_server.py`.
+  formats later, add a parser and dispatch on file type in
+  `calypso_report_server.py`.

@@ -49,6 +49,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 import traceback
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -290,6 +291,19 @@ class Config:
 
 
 CONFIG = Config()
+
+
+def _app_dir() -> str:
+    """
+    Directory to look in for the default config.json.
+
+    When frozen by PyInstaller, ``__file__`` points at a temporary extraction
+    directory, so use the directory of the running executable instead. When
+    running as a normal script, use the directory of this source file.
+    """
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
 
 
 def load_config_file(path: Optional[str], required: bool) -> Dict[str, Any]:
@@ -661,11 +675,9 @@ def main() -> None:
     args = parser.parse_args()
 
     # Resolve the config file: explicit --config/$CALYPSO_CONFIG is required to
-    # exist; the implicit config.json beside the script is optional.
+    # exist; the implicit config.json beside the program is optional.
     explicit_config = args.config
-    config_path = explicit_config or os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "config.json"
-    )
+    config_path = explicit_config or os.path.join(_app_dir(), "config.json")
     file_cfg = load_config_file(config_path, required=bool(explicit_config))
     config_loaded = bool(file_cfg) or os.path.isfile(config_path)
 

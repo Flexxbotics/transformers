@@ -1,0 +1,7 @@
+# Runtime dependencies for the PL Press report server.
+#
+# The server and its CSV parser use only the Python standard library, so there
+# are no third-party runtime dependencies. To build the standalone executable
+# you additionally need PyInstaller:
+#
+#   pip install pyinstaller
