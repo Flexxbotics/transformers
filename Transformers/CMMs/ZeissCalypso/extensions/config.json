@@ -1,0 +1,9 @@
+{
+  "directory": "C:\\CALYPSO\\reports",
+  "host": "0.0.0.0",
+  "port": 8756,
+  "pattern": "*.pdf",
+  "recursive": false,
+  "token": null,
+  "lookback_hours": 1440
+}

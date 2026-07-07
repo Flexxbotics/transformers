@@ -1,0 +1,8 @@
+{
+  "_class": "com.flexxbotics.beans.EquipmentDefinition",
+  "controller": "ZeissCalypso",
+  "manufacturer": "ZEISS",
+  "machineModel": "DuraMax",
+  "transformer": "ZeissCalypso",
+  "type": "CMM"
+}

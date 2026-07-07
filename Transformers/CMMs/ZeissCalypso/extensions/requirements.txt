@@ -1,0 +1,4 @@
+# Runtime dependencies for the ZEISS CALYPSO report server.
+# The JSON-RPC server itself uses only the Python standard library;
+# pdfplumber is required to parse the report PDFs.
+pdfplumber>=0.11
