@@ -1,0 +1,8 @@
+{
+  "_class": "com.flexxbotics.beans.EquipmentDefinition",
+  "controller": "MQTT",
+  "manufacturer": "Generic",
+  "machineModel": "MQTT Device",
+  "transformer": "GenericMQTT",
+  "type": "Generic"
+}

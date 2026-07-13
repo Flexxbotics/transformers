@@ -1,0 +1,61 @@
+{
+  "_class": "GenericMQTT",
+  "transformer": "GenericMQTT",
+  "commands": {
+    "connect": {},
+    "disconnect": {},
+    "publish": {
+      "topic": "",
+      "payload": "",
+      "qos": "",
+      "retain": ""
+    },
+    "subscribe": {
+      "topics": "",
+      "qos": ""
+    },
+    "unsubscribe": {
+      "topics": ""
+    },
+    "read": {
+      "topic": "",
+      "timeout": "",
+      "qos": ""
+    },
+    "receive": {
+      "buffer_size": "10"
+    },
+    "set_last_will": {
+      "topic": "",
+      "payload": "",
+      "qos": "",
+      "retain": ""
+    }
+  },
+  "metaData": {
+    "host": "",
+    "port": "1883",
+    "client_id": "",
+    "username": "",
+    "password": "",
+    "keepalive": "30",
+    "tls": "false",
+    "ca_certs": "",
+    "certfile": "",
+    "keyfile": "",
+    "insecure_tls": "false",
+    "timeout": "4.0",
+    "retry": "2",
+    "retry_interval": "0.1",
+    "receive_queue_maxlen": "5000",
+    "decode_payloads": "true",
+    "default_qos": "0",
+    "default_retain": "false",
+    "read_timeout": "2.0",
+    "write_topic_template": "{name}",
+    "subscribe_on_connect": "",
+    "status_topic": "",
+    "status_ok_payload": "",
+    "interval_topics": ""
+  }
+}
