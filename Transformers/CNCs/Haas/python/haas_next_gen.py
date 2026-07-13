@@ -24,6 +24,9 @@ from protocols.tcp import TCP
 from protocols.mtconnect import MTConnect
 import json
 import base64
+import io
+import socket
+from smb.SMBConnection import SMBConnection
 from transformers.abstract_device import AbstractDevice
 from flask import current_app, g
 import time
@@ -444,11 +447,23 @@ class HaasNextGen(AbstractDevice):
         :author:    tylerjm@flexxbotics.com
         :since:     KEYSTONE.4 (7.1.11.4)
         """
-
-        # Return list of available filenames from the device
         self.programs = []
+        self._info(message="Reading file names from Haas Net Share at " + self.address)
+        try:
+            conn, service_name, sub_path = self._smb_connect()
+            try:
+                entries = conn.listPath(service_name, sub_path or "/")
+                for entry in entries:
+                    if not entry.isDirectory and not entry.filename.startswith("."):
+                        self.programs.append(entry.filename)
+                self._info(message="Found " + str(len(self.programs)) + " file(s) on Haas Net Share")
+            finally:
+                conn.close()
+        except Exception as e:
+            self._error(message="Error reading file names from Haas Net Share: " + str(e))
+            raise Exception("Error reading file names from Haas Net Share: " + str(e))
 
-        return self.programs  # TODO is this the actual response object we want?
+        return self.programs
 
     def _read_file(self, file_name: str) -> str:
         """
@@ -462,10 +477,24 @@ class HaasNextGen(AbstractDevice):
         :author:    tylerjm@flexxbotics.com
         :since:     KEYSTONE.4 (7.1.11.4)
         """
-        # Reads the file content off the device
-        file_data = ""
+        self._info(message="Reading file from Haas Net Share: " + file_name)
+        try:
+            conn, service_name, sub_path = self._smb_connect()
+            try:
+                file_path = (sub_path + "/" + file_name).replace("//", "/")
+                if not file_path.startswith("/"):
+                    file_path = "/" + file_path
+                buf = io.BytesIO()
+                conn.retrieveFile(service_name, file_path, buf)
+                file_bytes = buf.getvalue()
+                self._info(message="Successfully read file from Haas Net Share: " + file_name + " (" + str(len(file_bytes)) + " bytes)")
+            finally:
+                conn.close()
+        except Exception as e:
+            self._error(message="Error reading file from Haas Net Share: " + str(e))
+            raise Exception("Error reading file from Haas Net Share: " + str(e))
 
-        return base64.b64encode(file_data)
+        return base64.b64encode(file_bytes).decode("utf-8")
 
     def _write_file(self, file_name: str, file_data: str):
         """
@@ -479,7 +508,22 @@ class HaasNextGen(AbstractDevice):
         :author:    tylerjm@flexxbotics.com
         :since:     ODOULS.3 (7.1.15.3)
         """
-        pass
+        self._info(message="Writing file to Haas Net Share: " + file_name)
+        try:
+            conn, service_name, sub_path = self._smb_connect()
+            try:
+                file_bytes = base64.b64decode(file_data)
+                file_path = (sub_path + "/" + file_name).replace("//", "/")
+                if not file_path.startswith("/"):
+                    file_path = "/" + file_path
+                buf = io.BytesIO(file_bytes)
+                conn.storeFile(service_name, file_path, buf)
+                self._info(message="Successfully wrote file to Haas Net Share: " + file_name + " (" + str(len(file_bytes)) + " bytes)")
+            finally:
+                conn.close()
+        except Exception as e:
+            self._error(message="Error writing file to Haas Net Share: " + str(e))
+            raise Exception("Error writing file to Haas Net Share: " + str(e))
 
     def _load_file(self, file_name: str):
         """
@@ -500,6 +544,41 @@ class HaasNextGen(AbstractDevice):
     # any specific functions that are needed to communicate via the transformer. For example,
     # connection methods, read/write methods, specific functions, etc.
     # ############################################################################## #
+
+    def _smb_connect(self):
+        """
+        Opens an SMBConnection to the Haas Net Share.
+
+        Parses self.fileshare_path as "<share_name>[/sub/path]" where the first
+        path segment is the SMB service (share) name and everything after is the
+        optional subdirectory within that share.
+
+        :return: (SMBConnection, service_name, sub_path)
+                 Caller is responsible for calling conn.close().
+        """
+        parts = self.fileshare_path.strip("/").split("/", 1)
+        service_name = parts[0]
+        sub_path = "/" + parts[1] if len(parts) > 1 else ""
+
+        self._info(message="Connecting to Haas Net Share at " + self.address + ":445 share=" + service_name)
+        client_name = socket.gethostname()
+        conn = SMBConnection(
+            self.fileshare_username,
+            self.fileshare_password,
+            client_name,
+            self.address,
+            use_ntlm_v2=True,
+            is_direct_tcp=True,
+        )
+        connected = conn.connect(self.address, 445)
+        if not connected:
+            raise Exception(
+                "Failed to connect to Haas Net Share at "
+                + self.address
+                + ":445 — check ip_address, fileshare_username, and fileshare_password"
+            )
+        self._info(message="Connected to Haas Net Share at " + self.address + ":445")
+        return conn, service_name, sub_path
 
     def _process_status(self, result: list):
         print("Process status: ")

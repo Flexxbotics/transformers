@@ -357,7 +357,7 @@ class UR(AbstractDevice):
         # Reads the file content off the device
         file_data = self._transfer_file_from_device(file_name)
 
-        return base64.b64encode(file_data)
+        return base64.b64encode(file_data).decode("utf-8")
 
     def _write_file(self, file_name: str, file_data: str):
         """

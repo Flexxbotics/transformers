@@ -58,6 +58,9 @@
   },
   "metaData": {
     "ip_address": "",
-    "port": "8193"
+    "port": "8193",
+    "fileshare_path": "/",
+    "fileshare_username": "",
+    "fileshare_password": ""
   }
 }

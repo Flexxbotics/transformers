@@ -138,6 +138,9 @@ class FOCAS2(AbstractDevice):
             self.meta_data = device.metaData
             self.address = self.meta_data["ip_address"]
             self.port = int(self.meta_data.get("port", 8193))
+            self.fileshare_path = self.meta_data.get("fileshare_path", "/")
+            self.fileshare_username = self.meta_data.get("fileshare_username", "")
+            self.fileshare_password = self.meta_data.get("fileshare_password", "")
 
             # FOCAS state
             self._fwlib = None
@@ -422,15 +425,72 @@ class FOCAS2(AbstractDevice):
         return value
 
     def _read_file_names(self) -> list:
+        """
+        Method to get a list of filenames from the device via FOCAS2.
+
+        :return:    list of filenames
+
+        :author:    tylerjm@flexxbotics.com
+        :since:     KEYSTONE.4 (7.1.11.4)
+        """
         self.programs = []
+        self._info(message="Reading file names from Fanuc CNC memory")
+        try:
+            self._ensure_connected()
+            self.programs = self._get_filenames()
+            self._info(message="Found " + str(len(self.programs)) + " file(s) in Fanuc CNC memory")
+        except Exception as e:
+            self._error(message="Error reading file names from Fanuc CNC memory: " + str(e))
+            raise Exception("Error reading file names from Fanuc CNC memory: " + str(e))
+
         return self.programs
 
     def _read_file(self, file_name: str) -> str:
-        file_data = ""
-        return base64.b64encode(file_data)
+        """
+        Method to read a file from the device via FOCAS2.
+
+        :param file_name:
+                    the name of the file to read.
+
+        :return:    the file's data as base64 string.
+
+        :author:    tylerjm@flexxbotics.com
+        :since:     KEYSTONE.4 (7.1.11.4)
+        """
+        self._info(message="Reading file from Fanuc CNC memory: " + file_name)
+        try:
+            self._ensure_connected()
+            program_path = self.fileshare_path.rstrip("/") + "/" + file_name
+            b64 = self._program_upload(program_path)
+            self._info(message="Successfully read file from Fanuc CNC memory: " + file_name)
+        except Exception as e:
+            self._error(message="Error reading file from Fanuc CNC memory: " + str(e))
+            raise Exception("Error reading file from Fanuc CNC memory: " + str(e))
+
+        return b64
 
     def _write_file(self, file_name: str, file_data: str):
-        pass
+        """
+        Method to write a file to the device via FOCAS2.
+
+        :param file_name:
+                    the name of the file to write.
+        :param file_data:
+                    the data of the file to write as base64 string.
+
+        :author:    tylerjm@flexxbotics.com
+        :since:     ODOULS.3 (7.1.15.3)
+        """
+        self._info(message="Writing file to Fanuc CNC memory: " + file_name)
+        try:
+            self._ensure_connected()
+            program_path = self.fileshare_path.rstrip("/") + "/" + file_name
+            raw = base64.b64decode(file_data)
+            self._program_download(program_path, raw)
+            self._info(message="Successfully wrote file to Fanuc CNC memory: " + file_name)
+        except Exception as e:
+            self._error(message="Error writing file to Fanuc CNC memory: " + str(e))
+            raise Exception("Error writing file to Fanuc CNC memory: " + str(e))
 
     def _load_file(self, file_name: str):
         pass
@@ -713,7 +773,8 @@ class FOCAS2(AbstractDevice):
     def _get_current_directory(self) -> str:
         self._connect()
         buf = ctypes.create_string_buffer(4096)
-        ret = self._fwlib.cnc_rdpdf_curdir(self._handle, c_short(1), buf)
+        # type 0 = NC memory (//CNC_MEM/...), 1 = memory card, 2 = data server, 3 = USB
+        ret = self._fwlib.cnc_rdpdf_curdir(self._handle, c_short(0), buf)
         self._ret_check(ret, "cnc_rdpdf_curdir")
         self._disconnect()
         return buf.value.decode("utf-8", errors="ignore")
@@ -721,7 +782,8 @@ class FOCAS2(AbstractDevice):
     def _set_current_directory(self, directory: str) -> None:
         self._connect()
         buf = ctypes.create_string_buffer(directory.encode("utf-8"))
-        ret = self._fwlib.cnc_wrpdf_curdir(self._handle, c_short(1), buf)
+        # type 0 = NC memory (//CNC_MEM/...), 1 = memory card, 2 = data server, 3 = USB
+        ret = self._fwlib.cnc_wrpdf_curdir(self._handle, c_short(0), buf)
         self._ret_check(ret, "cnc_wrpdf_curdir")
         self._disconnect()
 
