@@ -75,13 +75,17 @@ class CalypsoReportParser:
     returned directly over the JSON-RPC transport.
     """
 
-    # One measured-characteristic row, e.g.
-    #   "#2_Diameter_Dowel 0.5036inch 0.5000 0.0100 -0.0100 0.0036"
-    #   "#3_7DEG-Angle_of_Dowel 7.0351° 7.0000 0.5000 -0.5000 0.0351"
-    #   "#5.4_...BotL_3d 0.4465inch 0.4340 0.0100 -0.0100 0.0125 0.0025"  (last col = out of tol)
+    # One measured-characteristic row. Handles both CALYPSO text layouts:
+    #   glued unit:  "#2_Diameter_Dowel 0.5036inch 0.5000 0.0100 -0.0100 0.0036"
+    #   spaced unit: "#2_Diameter_Dowel 0.5036 inch 0.5000 0.0100 -0.0100 0.0036"
+    #   angle:       "#3_7DEG-Angle_of_Dowel 7.0351° 7.0000 0.5000 -0.5000 0.0351"
+    #   out-of-tol:  "#5.4_...BotL_3d 0.4465 inch 0.4340 0.0100 -0.0100 0.0125 0.0025"
+    # Notes: the name may contain internal spaces from extraction (e.g.
+    # "#5.1_ .434-..."), the unit may be glued/spaced/absent, and the trailing
+    # numeric columns are the reliable anchor.
     _ROW_RE = re.compile(
-        r"^(?P<name>\S+)\s+"
-        r"(?P<measured>-?\d+(?:\.\d+)?)(?P<unit>inch|mm|°)\s+"
+        r"^(?P<name>.+?)\s+"
+        r"(?P<measured>-?\d+(?:\.\d+)?)\s*(?P<unit>inch|mm|°)?\s+"
         r"(?P<nominal>-?\d+(?:\.\d+)?)\s+"
         r"(?P<tol_plus>-?\d+(?:\.\d+)?)\s+"
         r"(?P<tol_minus>-?\d+(?:\.\d+)?)\s+"
@@ -153,17 +157,20 @@ class CalypsoReportParser:
         return {
             "software": "ZEISS CALYPSO" if "ZEISS" in text else None,
             "version": version,
-            "part_name": cls._search(r"Partname\s+(\S+)", text, reject_labels=True),
-            "drawing_number": cls._search(r"Drawingnumber\s+(\S+)", text, reject_labels=True),
-            "order_number": cls._search(r"Ordernumber\s+(\d+)", text),
-            "part_ident": cls._search(r"Partident\s+(\S+)", text, reject_labels=True),
-            "cmm_type": cls._search(r"CMMType\s+(\S+)", text, reject_labels=True),
-            "cmm_no": cls._search(r"CMMNo\.\s+(\d+)", text),
-            "operator": cls._search(r"Operator\s+(\S+)", text, reject_labels=True),
+            # Labels may be glued ("Partname") or spaced ("Part name"); values are
+            # taken from the same line only ([ \t]+, not \s+) so a blank field
+            # doesn't bleed the next line's label.
+            "part_name": cls._search(r"Part ?name[ \t]+(\S+)", text, reject_labels=True),
+            "drawing_number": cls._search(r"Drawing ?number[ \t]+(\S+)", text, reject_labels=True),
+            "order_number": cls._search(r"Order ?number[ \t]+(\d+)", text),
+            "part_ident": cls._search(r"Part ?ident[ \t]+(\S+)", text, reject_labels=True),
+            "cmm_type": cls._search(r"CMM ?Type[ \t]+(\S+)", text, reject_labels=True),
+            "cmm_no": cls._search(r"CMM ?No\.[ \t]+(\d+)", text),
+            "operator": cls._search(r"Operator[ \t]+(\S+)", text, reject_labels=True),
             "measured_datetime": cls._parse_measured_datetime(text),
-            "num_measured_values": cls._to_int(cls._search(r"Numbermeasuredvalues\s+(\d+)", text)),
-            "num_values_red": cls._to_int(cls._search(r"Numbervalues:red\s+(\d+)", text)),
-            "measurement_duration": cls._search(r"MeasurementDuration\s+([\d:.]+)", text),
+            "num_measured_values": cls._to_int(cls._search(r"Number ?measured ?values[ \t]+(\d+)", text)),
+            "num_values_red": cls._to_int(cls._search(r"Number ?values: ?red[ \t]+(\d+)", text)),
+            "measurement_duration": cls._search(r"Measurement ?Duration[ \t]+([\d:.]+)", text),
         }
 
     @classmethod
@@ -175,10 +182,14 @@ class CalypsoReportParser:
             if not m:
                 continue
             g = m.groupdict()
+            # Normalize names that picked up internal spaces during extraction
+            # (e.g. "#5.1_ .434-..." -> "#5.1_.434-...") so both layouts yield
+            # the same characteristic name.
+            name = re.sub(r"\s+", "", g["name"])
             out_of_tol = cls._to_float(g["out_of_tol"])
             rows.append(
                 {
-                    "name": g["name"],
+                    "name": name,
                     "measured_value": cls._to_float(g["measured"]),
                     "unit": cls._UNIT_NAMES.get(g["unit"], g["unit"]),
                     "nominal_value": cls._to_float(g["nominal"]),
