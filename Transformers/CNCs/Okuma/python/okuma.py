@@ -228,6 +228,15 @@ class Okuma(AbstractDevice):
                 thinc_command = (
                         "GET_ACTIVE_TOOL"
                 )
+            elif command_name == "get_axis_load":
+                thinc_command = (
+                        "GET_AXIS_LOAD:"
+                        + args["axis_index"]
+                )
+            elif command_name == "get_spindle_load":
+                thinc_command = (
+                        "GET_SPINDLE_LOAD"
+                )
             elif command_name == "get_all_tool_life":
                 skip_sending = True
                 response = self._get_all_tool_life(number_of_tools=args["num_tools"])
