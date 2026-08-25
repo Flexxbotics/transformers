@@ -22,7 +22,8 @@ from transformers.abstract_device import AbstractDevice
 from dataclasses import dataclass, field
 from typing import Callable, Any
 from enum import Enum
-
+from flask import current_app
+from repos.run_records.run_record_document import RunRecordDocument
 
 @dataclass(frozen=True)
 class LaserCommand:
@@ -34,8 +35,8 @@ class LaserCommand:
     def build(self, *args: Any) -> str:
         self.validate_args(args)
         if args:
-            return f"{self.keyword}:{';'.join(str(a) for a in args)}"
-        return self.keyword
+            return f"{self.command}:{';'.join(str(a) for a in args)}" + "\r\n"
+        return self.command + "\r\n"
 
     def validate_args(self, args: tuple[Any, ...]) -> None:
         argc = len(args) if args else 0
@@ -51,19 +52,37 @@ class LaserCommand:
             )
 
     def parse(self, raw: str) -> dict:
-        parts = raw.strip().split(";")
-        code = parts[0]
-
+        parts = raw.strip().split(":")
+        data = parts[1].split(";")
+        code = data[0]
         return {
             "code": code,
             "meaning": self.response_codes.get(code, "UNKNOWN"),
-            "extra": parts[1:] if len(parts) > 1 else [],
+            "extra": data[1:] if len(data) > 1 else [],
         }
 
 
 class FobaCmd(Enum):
-    WRITE = LaserCommand("SETVAR", min_args=2, max_args=2)
-    READ = LaserCommand("GETVAR", min_args=1, max_args=1)
+    WRITE = LaserCommand(
+        "SETVAR",
+        min_args=2,
+        max_args=2,
+        response_codes={
+            "1": "OK",
+            "-2": "NOT FOUND",
+            "-6": "INVALID FORMAT",
+        },
+    )
+    READ = LaserCommand(
+        "GETVAR",
+        min_args=1,
+        max_args=1,
+        response_codes={
+            "1": "OK",
+            "-2": "NOT FOUND",
+            "-6": "INVALID FORMAT",
+        },
+    )
     STATUS = LaserCommand(
         "GETSTATUS",
         response_codes={
@@ -73,16 +92,38 @@ class FobaCmd(Enum):
             "-6": "INVALID FORMAT",
         },
     )
-
-
-"""
-
-    THIS IS A TEMPLATE. Be wary about making changes directly to it. It is meant to serve as guidance to future
-    device interface developers. Order of operations to use this file should be:
-        1. Make a copy of template.py and rename it as device_interface_name.py.
-        2. Make edits directly in the copied file
-
-"""
+    RUN = LaserCommand(
+        "STARTJOB",
+        response_codes={
+            "1": "OK",
+            "-1": "ERROR",
+            "-2": "NO JOB",
+            "-4": "LOT PROCESSED",
+            "-5": "BUSY",
+            "-6": "INVALID FORMAT"
+        }
+    )
+    LOAD = LaserCommand(
+        "LOADJOB",
+        response_codes={
+            "1": "OK",
+            "-2": "FILE NOT FOUND",
+            "-5": "BUSY",
+            "-6": "INVALID FORMAT"
+        },
+        min_args=1,
+        max_args=1
+    )
+    GETALIGNMENTSTATUS = LaserCommand(
+        "GETALIGNMENTSTATUS",
+        response_codes={
+            "1": "OK",
+            "-2": "ITEM NOT FOUND",
+            "-6": "INVALID FORMAT"
+        },
+        min_args=1,
+        max_args=2
+    )
 
 
 class FOBA(AbstractDevice):
@@ -97,12 +138,15 @@ class FOBA(AbstractDevice):
         :return:    a new instance
         """
         # Get meta data of the device from its attributes, this contains information such as: ip address, ports, etc
+        super().__init__(device)
         self.meta_data = device.metaData
-        self.connection_string = self.meta_data["address"].split(":")
-        self.address = self.connection_string[0]
-        self.port = self.connection_string[1]
+        self.address = self.meta_data["ip_address"]
+        self.port = self.meta_data["port"]
+        self._logger = current_app.config["logger"]
 
         self.client = TCP(address=self.address, port=self.port)
+        self.variable_service = self.core_services.variable_service
+        self.alignment_data = {}
 
     def __del__(self):
         pass
@@ -111,7 +155,7 @@ class FOBA(AbstractDevice):
     # DEVICE COMMUNICATION METHODS
     # ############################################################################## #
 
-    def execute_command(self, command_name: str, command_args: str) -> str:
+    def _execute_command_v2(self, command_name: str, command_args: str) -> str:
         """
         Executes the command sent to the device.
 
@@ -131,49 +175,51 @@ class FOBA(AbstractDevice):
 
         self._info(message="Sending command: " + command_name)
         try:
-            command = self.foba_commands[command_name] + "\r\n"
-            result = self.client.send(data=command, encoding="ascii", response_time=0.5)
-            result = result.split(",")
-            if command_name == "get_mode":
-                expected = "MODE"
-                actual_idx = 0
-                data_idx = 1
-            elif command_name == "get_tool_changes":
-                expected = "TOOLCHANGES"
-                actual_idx = 0
-                data_idx = 1
-            elif command_name == "get_current_tool_number":
-                expected = "USINGTOOL"
-                actual_idx = 0
-                data_idx = 1
-            elif command_name == "get_power_time":
-                expected = "P.O.TIME"
-                actual_idx = 0
-                data_idx = 1
-            elif command_name == "get_motion_time":
-                expected = "C.S.TIME"
-                actual_idx = 0
-                data_idx = 1
-            elif command_name == "get_last_cycle":
-                expected = "LASTCYCLE"
-                actual_idx = 0
-                data_idx = 1
-            elif command_name == "get_previous_cycle":
-                expected = "PREVCYCLE"
-                actual_idx = 0
-                data_idx = 1
-            elif command_name == "get_part_count":
-                expected = "PROGRAM"
-                actual_idx = 0
-                data_idx = 4
-            else:
-                pass
-            response = self._process_response(
-                result=result,
-                expected=expected,
-                actual_idx=actual_idx,
-                data_idx=data_idx,
-            )
+            if command_name == "get_alignment_status":
+                layout_position = args.get("layout_position", 0)
+                mark_set_index = args.get("mark_set_index", 0)
+                data = FobaCmd.GETALIGNMENTSTATUS.value.build(layout_position, mark_set_index)
+                self._info(message=data)
+                raw = self.client.send(data=data, encoding="ascii", response_time=0.5)
+                command_response = FobaCmd.GETALIGNMENTSTATUS.value.parse(raw)
+                self._info(message=command_response)
+                if command_response["meaning"] != "OK":
+                    return "ERROR"
+                extra = command_response["extra"]
+                if extra[0] == "NotProcessed":
+                    return "NotProcessed"
+                self.alignment_data = {
+                    "result": extra[0],
+                    "type": extra[1],
+                    "error": extra[2],
+                    "x_offset": extra[3],
+                    "y_offset": extra[4],
+                    "angle": extra[5],
+                    "x_scale": extra[6],
+                    "y_scale": extra[7],
+                    "x_shear": extra[8],
+                    "y_shear": extra[9],
+                    "x_trapezoid": extra[10],
+                    "y_trapezoid": extra[11],
+                    "duration": extra[12]
+                }
+                self._info(self.alignment_data)
+                #self.variable_service.update_device_variable_latest_value_by_name("69dd7a3dfca98ab7d3e71932", "result", self.alignment_data["result"])
+                #self.variable_service.update_device_variable_latest_value_by_name("69dd7a3dfca98ab7d3e71932", "x_offset", self.alignment_data["x_offset"])
+                #self.variable_service.update_device_variable_latest_value_by_name("69dd7a3dfca98ab7d3e71932", "y_offset", self.alignment_data["y_offset"])
+                #self.variable_service.update_device_variable_latest_value_by_name("69dd7a3dfca98ab7d3e71932", "error", self.alignment_data["error"])
+                #self.variable_service.update_device_variable_latest_value_by_name("69dd7a3dfca98ab7d3e71932", "angle", self.alignment_data["angle"])
+                response = command_response["meaning"]
+            if command_name == "get_alignment_data":
+                data_index = args.get("data", "")
+                return self.alignment_data[data_index]
+            if command_name == "get_active_order":
+                work_cell = self._work_cell_service.get_work_cell()
+                run_record = RunRecordDocument.objects(
+                    workCellId=str(work_cell.id), isCompleted=False
+                ).first()
+                return str(run_record.name) if run_record else ""
+
         except Exception as e:
             raise Exception(
                 "Error when sending command, did not get response from device: "
@@ -213,8 +259,7 @@ class FOBA(AbstractDevice):
         if function is None:
             data = FobaCmd.STATUS.value.build()
             raw = self.client.send(data=data, encoding="ascii", response_time=0.5)
-            result = FobaCmd.STATUS.value.parse(raw=raw)["meaning"]
-            status = self._process_status(result=result)
+            status = FobaCmd.STATUS.value.parse(raw=raw)["meaning"]
         elif function == "":  # Some string
             # Write specific function call to read status
             pass
@@ -240,17 +285,18 @@ class FOBA(AbstractDevice):
         """
         value = ""
         if function is None:
-            q_command = self.foba_commands["read"] + " " + str(variable_name) + "\r\n"
-            result = self.client.send(
-                data=q_command, encoding="ascii", response_time=0.5
-            )
-            result = result.split(",")
-            value = self._process_response(
-                result=result,
-                expected="MACRO",
-                actual_idx=0,
-                data_idx=1,
-            )
+            data = FobaCmd.READ.value.build(variable_name)
+            raw = self.client.send(data=data, encoding="ascii", response_time=0.5)
+            result = FobaCmd.READ.value.parse(raw)
+            if result["meaning"] != "OK":
+                self._error(
+                    message="Error reading variable '"
+                    + str(variable_name)
+                    + "' from device: "
+                    + result["meaning"]
+                )
+            else:
+                value = result["extra"][0] if result["extra"] else ""
         elif function == "":  # Some string
             # Write specific function call to read variable
             pass
@@ -281,23 +327,18 @@ class FOBA(AbstractDevice):
         """
         value = ""
         if function is None:
-            q_command = (
-                self.foba_commands["write"]
-                + str(variable_name)
-                + " "
-                + str(variable_value)
-                + "\r\n"
-            )
-            result = self.client.send(
-                data=q_command, encoding="ascii", response_time=0.5
-            )
-            result = result.split(",")
-            value = self._process_response(
-                result=result,
-                expected="!",
-                actual_idx=0,
-                data_idx=0,
-            )
+            data = FobaCmd.WRITE.value.build(variable_name, variable_value)
+            raw = self.client.send(data=data, encoding="ascii", response_time=0.5)
+            result = FobaCmd.WRITE.value.parse(raw)
+            if result["meaning"] != "OK":
+                self._error(
+                    message="Error writing variable '"
+                    + str(variable_name)
+                    + "' to device: "
+                    + result["meaning"]
+                )
+            else:
+                value = variable_value
         elif function == "":  # Some string
             # Write specific function call to write variable
             pass
@@ -328,23 +369,18 @@ class FOBA(AbstractDevice):
         """
         value = ""
         if function is None:
-            q_command = (
-                self.foba_commands["write"]
-                + str(parameter_name)
-                + " "
-                + str(parameter_value)
-                + "\r\n"
-            )
-            result = self.client.send(
-                data=q_command, encoding="ascii", response_time=0.5
-            )
-            result = result.split(",")
-            value = self._process_response(
-                result=result,
-                expected="!",
-                actual_idx=0,
-                data_idx=0,
-            )
+            data = FobaCmd.WRITE.value.build(parameter_name, parameter_value)
+            raw = self.client.send(data=data, encoding="ascii", response_time=0.5)
+            result = FobaCmd.WRITE.value.parse(raw)
+            if result["meaning"] != "OK":
+                self._error(
+                    message="Error writing parameter '"
+                    + str(parameter_name)
+                    + "' to device: "
+                    + result["meaning"]
+                )
+            else:
+                value = parameter_value
         elif function == "":  # Some string
             # Write specific function call to write parameter
             pass
@@ -370,17 +406,18 @@ class FOBA(AbstractDevice):
         """
         value = ""
         if function is None:
-            q_command = self.foba_commands["read"] + " " + str(parameter_name) + "\r\n"
-            result = self.client.send(
-                data=q_command, encoding="ascii", response_time=0.5
-            )
-            result = result.split(",")
-            value = self._process_response(
-                result=result,
-                expected="MACRO",
-                actual_idx=0,
-                data_idx=1,
-            )
+            data = FobaCmd.READ.value.build(parameter_name)
+            raw = self.client.send(data=data, encoding="ascii", response_time=0.5)
+            result = FobaCmd.READ.value.parse(raw)
+            if result["meaning"] != "OK":
+                self._error(
+                    message="Error reading parameter '"
+                    + str(parameter_name)
+                    + "' from device: "
+                    + result["meaning"]
+                )
+            else:
+                value = result["extra"][0] if result["extra"] else ""
         elif function == "":  # Some string
             # Write specific function call to read variable
             pass
@@ -445,7 +482,27 @@ class FOBA(AbstractDevice):
         :author:    zacc@flexxbotics.com
         :since:     MODELO.3 (7.1.13.3)
         """
-        pass
+        data = FobaCmd.LOAD.value.build(file_name)
+        raw = self.client.send(data=data, encoding="ascii", response_time=0.5)
+        status = FobaCmd.LOAD.value.parse(raw=raw)["meaning"]
+        return status
+
+    def run_program(self, function: str = None) -> str:
+        """
+            Method to run the active program on the device
+
+            :param function:
+                        Optional parameter to provide the name of a function to run - string
+
+            :return:    value - string
+
+            :author:    tylerjm@flexxbotics.com
+            :since:     P.2 (7.1.16.2)
+        """
+        data = FobaCmd.RUN.value.build()
+        raw = self.client.send(data=data, encoding="ascii", response_time=0.5)
+        status = FobaCmd.RUN.value.parse(raw=raw)["meaning"]
+        return status
 
     # ############################################################################## #
     # INTERFACE HELPER METHODS
