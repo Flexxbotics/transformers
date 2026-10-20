@@ -27,7 +27,7 @@ class PLPress(AbstractDevice):
 
     Rather than talking to the press directly, this transformer talks to the
     standalone PL Press report server (see ../extensions/pl_press_server.py)
-    running on the press's Windows PC. That server scans a directory of PL Press
+    running on the press's Windows PC or outside the flexx core container. That server scans a directory of PL Press
     measurement CSV files and exposes them over JSON-RPC 2.0. This transformer
     forwards commands to it via the HttpRest protocol and returns the structured
     inspection data.
