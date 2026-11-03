@@ -93,25 +93,25 @@ class GenericOPCUA(AbstractDevice):
 
         self.meta_data        = device.metaData or {}
         self.ip_address       = self.meta_data.get("ip_address", "")
-        self.port             = self.meta_data.get("port", "4840")
+        self.port             = self._meta_value("port", "4840")
         self.username         = self.meta_data.get("username", "") or None
         self.password         = self.meta_data.get("password", "") or None
         self.security_string  = self.meta_data.get("security_string", "") or None
-        self.timeout          = float(self.meta_data.get("timeout", 4.0))
-        self.retry            = int(self.meta_data.get("retry", 2))
-        self.retry_interval   = float(self.meta_data.get("retry_interval", 0.1))
-        self.status_node_id   = self.meta_data.get("status_node_id", self._SERVER_STATE_NODE)
+        self.timeout          = self._meta_value("timeout", 4.0, float)
+        self.retry            = self._meta_value("retry", 2, int)
+        self.retry_interval   = self._meta_value("retry_interval", 0.1, float)
+        self.status_node_id   = self._meta_value("status_node_id", self._SERVER_STATE_NODE)
         self.interval_node_ids = [
             n.strip()
-            for n in self.meta_data.get("interval_node_ids", "").split(",")
+            for n in str(self.meta_data.get("interval_node_ids") or "").split(",")
             if n.strip()
         ]
-        self.subscription_queue_maxlen = int(
-            self.meta_data.get("subscription_queue_maxlen", 5000)
+        self.subscription_queue_maxlen = self._meta_value(
+            "subscription_queue_maxlen", 5000, int
         )
 
         # Build endpoint URL from parts if not explicitly provided
-        endpoint = self.meta_data.get("endpoint", "").strip()
+        endpoint = str(self.meta_data.get("endpoint") or "").strip()
         if not endpoint:
             if not self.ip_address:
                 raise ValueError("GenericOPCUA: metaData must contain 'endpoint' or 'ip_address'")
@@ -419,6 +419,22 @@ class GenericOPCUA(AbstractDevice):
     def _ensure_connected(self) -> None:
         if not self._connected or self._client is None:
             self._connect()
+
+    def _meta_value(self, key: str, default, cast=str):
+        """
+        Read a metaData value, treating missing, None and blank ("") entries as
+        "use the default".  The device wizard saves unfilled fields as empty
+        strings, which dict.get(key, default) would otherwise pass through.
+        """
+        raw = self.meta_data.get(key)
+        if raw is None or (isinstance(raw, str) and not raw.strip()):
+            return default
+        try:
+            return cast(raw.strip() if isinstance(raw, str) else raw)
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"GenericOPCUA: metaData '{key}' must be a valid {cast.__name__}, got {raw!r}"
+            )
 
     @staticmethod
     def _parse_node_ids(raw) -> List[str]:
