@@ -55,9 +55,10 @@ class HaasNextGen(AbstractDevice):
 
     def __init__(self, device: Device):
         """
-        Template device class. Inherits AbstractDevice class.
+        Haas Next Gen Control transformer (Q commands over TCP, MTConnect, and the Haas Net Share
+        over SMB). Does not connect. Raises ValueError when metaData has no 'ip_address' or 'port'.
 
-        :param Device:
+        :param device:
                     the device object
 
         :return:    a new instance
@@ -131,11 +132,8 @@ class HaasNextGen(AbstractDevice):
         Returns: {"status": "ok", "command": "<name>", "value": "<value from the reply>"}
                  (connect / disconnect: {"status": "ok", "connected": true|false})
 
-        Errors raise: 400 for an unknown command, 503 when the device does not
-        respond, 500 for an unexpected or empty reply.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
+        Errors raise: 400 for an unknown command, 500 for an unexpected or empty
+        reply (the TCP client returns an empty reply when the device does not respond).
         """
         # Parse the command from the incoming request
         args = self._parse_args(command_args)
@@ -161,14 +159,14 @@ class HaasNextGen(AbstractDevice):
 
     def _read_interval_data(self) -> str:
         """
-        Method to read the status of the device on an interval
+        Method called on the poll interval. Reads the status again (_read_status) and the active
+        program (MTConnect "ncprog"), sets it as the latest run record's partNumber ("NOT_REPORTED"
+        when blank) and resets partCount when it changed. When the status is not RUNNING or
+        IDLE_SPINDLE, reads the CNC part count (?Q500) and creates a PartCountEvent when it changed.
+        Every 450th call (the first included) reads every device variable. Errors are logged, never
+        raised.
 
-        :return:    status - string
-
-        :author:    tylerjm@flexxbotics.com
-        :author:    sanua@flexxbotics.com
-
-        :since:     ODOULS.3 (7.1.15.3)
+        :return:    None
         """
         try:
             self._ensure_connected()
@@ -230,12 +228,10 @@ class HaasNextGen(AbstractDevice):
         :param function:
                     Ignored.
 
-        :return:    status - string: RUNNING, IDLE_SPINDLE, NO_DATA, UNKNOWN_HAAS_STATE,
-                    the PROGRAM status field, or the active alarm text; "ERROR" when the
-                    machine cannot be read.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
+        :return:    status - string: RUNNING, IDLE_SPINDLE, NO_DATA (empty ?Q500 reply),
+                    UNKNOWN_HAAS_STATE, the PROGRAM status field, or the MTConnect "aalarms"
+                    text when it is not "NO ACTIVE ALARMS"; "ERROR" when a read raises
+                    (e.g. MTConnect does not respond).
         """
         status = ""
         try:
@@ -308,9 +304,6 @@ class HaasNextGen(AbstractDevice):
                     Ignored.
 
         :return:    value - string. Raises on failure.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         value = ""
         try:
@@ -345,9 +338,6 @@ class HaasNextGen(AbstractDevice):
                     Ignored.
 
         :return:    value - string: the device's reply ("!"). Raises on failure.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         value = ""
         try:
@@ -367,21 +357,19 @@ class HaasNextGen(AbstractDevice):
 
     def _write_parameter(self, parameter_name: str, parameter_value: str, function: str = None) -> str:
         """
-        Method to write the specified parameter on the device
+        Method to write the specified parameter on the device. Sent as a macro variable
+        write (?E), the same as _write_variable.
 
-        :param parameter:
-                    The parameter to write - string
+        :param parameter_name:
+                    The macro variable number to write - string
 
-        :param parameter:
+        :param parameter_value:
                     The value of the parameter to write - string
 
         :param function:
                     Ignored.
 
         :return:    value - string: the device's reply ("!"). Raises on failure.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         value = ""
         try:
@@ -403,16 +391,13 @@ class HaasNextGen(AbstractDevice):
         """
         Method to read the specified parameter from the device
 
-        :param parameter:
-                    The parameter to write - string
+        :param parameter_name:
+                    The macro variable number to read (?Q600) - string
 
         :param function:
                     Ignored.
 
         :return:    value - string. Raises on failure.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         value = ""
         try:
@@ -435,9 +420,6 @@ class HaasNextGen(AbstractDevice):
         Method to get a list of filenames from the device
 
         :return:    list of filenames
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     KEYSTONE.4 (7.1.11.4)
         """
         self.programs = []
         self._info(message="Reading file names from Haas Net Share at " + self.address)
@@ -465,9 +447,6 @@ class HaasNextGen(AbstractDevice):
                     the name of the file to read.
 
         :return:    the file's data as base64 string.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     KEYSTONE.4 (7.1.11.4)
         """
         self._info(message="Reading file from Haas Net Share: " + file_name)
         try:
@@ -496,9 +475,6 @@ class HaasNextGen(AbstractDevice):
                     the name of the file to write.
         :param file_data:
                     the data of the file to write as base64 string.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         self._info(message="Writing file to Haas Net Share: " + file_name)
         try:
@@ -519,13 +495,10 @@ class HaasNextGen(AbstractDevice):
 
     def _load_file(self, file_name: str):
         """
-        Loads a file into memory on the device
+        Not implemented: does nothing, so no file is loaded.
 
         :param file_name: the name of the file to load into memory
-        :return: the file name
-
-        :author:    zacc@flexxbotics.com
-        :since:     MODELO.3 (7.1.13.3)
+        :return: None (the body is empty)
         """
         pass
 

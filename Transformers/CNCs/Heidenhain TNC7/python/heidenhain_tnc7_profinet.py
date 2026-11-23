@@ -51,18 +51,22 @@ class HeidenhainTNC7_Profinet(AbstractDevice):
     ------
     Failures raise the runtime's exceptions, which the API returns as HTTP errors carrying the
     message: BadRequestException (400) for bad args or an unknown command,
-    ServiceUnavailableException (503) when the device does not respond, ServerErrorException (500)
-    for anything else.  _read_status never raises (it returns "ERROR"), and neither does
-    _read_interval_data.
+    ServiceUnavailableException (503) for a network error (in practice the TNC Remo bridge not
+    responding in _load_file),
+    ServerErrorException (500) for anything else, including a Modbus PLC that cannot be reached or
+    does not answer (pymodbus raises ConnectionException / ModbusIOException, which are not network
+    errors).  _read_status never raises (it returns "ERROR"), and neither does _read_interval_data.
     """
 
     _BRIDGE_TIMEOUT_S = 10
 
     def __init__(self, device: Device):
         """
-        Template device class. Inherits AbstractDevice class.
+        Heidenhain TNC7 Profinet device class. Reads the metaData listed on the class and
+        derives this CNC's Modbus command registers from cnc_number. Raises ValueError when
+        cnc_number is missing or not a number, or plc_port is not a number.
 
-        :param Device:
+        :param device:
                     the device object
 
         :return:    a new instance
@@ -155,8 +159,11 @@ class HeidenhainTNC7_Profinet(AbstractDevice):
             Args: addresses (list of str, required), values (list of int 0/1, required, same length)
             Returns: {"status": "ok", "value": ["<register read back after each write>", ...]}
 
-        Errors raise: 400 for missing/invalid args or an unknown command,
-        503 when the device does not respond, 500 otherwise.
+        Errors raise: 400 for invalid JSON args, a missing arg, addresses/values that are
+        not lists of the same length, or an unknown command; 500 otherwise, including a
+        malformed address, a non-integer value, and a PLC that cannot be reached or does
+        not answer (pymodbus raises its own exceptions, which are not network errors;
+        only a raw socket error it lets through gives 503).
 
         :param command_name:
                     the command to be executed
@@ -164,9 +171,6 @@ class HeidenhainTNC7_Profinet(AbstractDevice):
                     json with the arguments for the command
 
         :return:    the response after execution of command.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         # Parse the command from the incoming request
         args = self._parse_args(command_args)
@@ -214,11 +218,6 @@ class HeidenhainTNC7_Profinet(AbstractDevice):
         Method to read the status of the device on an interval. Never raises.
 
         :return:    status - string
-
-        :author:    tylerjm@flexxbotics.com
-        :author:    sanua@flexxbotics.com
-
-        :since:     ODOULS.3 (7.1.15.3)
         """
         try:
             status = self.read_status()
@@ -238,9 +237,6 @@ class HeidenhainTNC7_Profinet(AbstractDevice):
         :return:    status - string: FAULT, IDLE, RUNNING, PREPARE_FOR_LOADING, LOADING,
                     DOOR_UNLOCKED or NO MATCH, with " NOK_PART" appended when that bit is set;
                     "ERROR" when the bits cannot be read (never raises)
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         status = ""
         try:
@@ -278,11 +274,9 @@ class HeidenhainTNC7_Profinet(AbstractDevice):
         :param function:
                     Not used
 
-        :return:    value - string: "0" or "1". Raises on failure (503 when the device does not
-                    respond, 500 otherwise).
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
+        :return:    value - string: "0" or "1". Raises on failure: 500, including a PLC that
+                    cannot be reached or does not answer (503 only for a raw socket error that
+                    pymodbus lets through, e.g. a connection reset mid-call).
         """
         try:
             return str(self._read_pn_bit(variable_name, self.CNC_NUMBER))
@@ -302,11 +296,9 @@ class HeidenhainTNC7_Profinet(AbstractDevice):
         :param function:
                     Not used
 
-        :return:    value - string: the write-address register read back. Raises on failure
-                    (503 when the device does not respond, 500 otherwise).
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
+        :return:    value - string: the write-address register read back. Raises on failure:
+                    500, including a PLC that cannot be reached or does not answer (503 only
+                    for a raw socket error that pymodbus lets through).
         """
         try:
             # self._set_profinet_bit(variable_name, int(variable_value))
@@ -317,15 +309,12 @@ class HeidenhainTNC7_Profinet(AbstractDevice):
 
     def _run_program(self, function: str = None):
         """
-            Method to run the active program on the device
+            Placeholder: does not run anything on the device.
 
             :param function:
-                        Optional parameter to provide the name of a function to run - string
+                        Not used
 
-            :return:    value - string
-
-            :author:    tylerjm@flexxbotics.com
-            :since:     P.2 (7.1.16.2)
+            :return:    "" - string (always)
         """
         try:
             response = ""
@@ -337,12 +326,9 @@ class HeidenhainTNC7_Profinet(AbstractDevice):
 
     def _read_file_names(self) -> list:
         """
-        Method to get a list of filenames from the device
+        Not implemented: does not contact the device.
 
-        :return:    list of filenames
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     KEYSTONE.4 (7.1.11.4)
+        :return:    an empty list (always)
         """
 
         # Return list of available filenames from the device
@@ -352,15 +338,12 @@ class HeidenhainTNC7_Profinet(AbstractDevice):
 
     def _write_file(self, file_name: str, file_data: str):
         """
-        Method to write a file to a device
+        Not implemented: does nothing and returns None.
 
         :param file_name:
                     the name of the file to write.
         :param file_data:
                     the data of the file to write as base64 string.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         pass
 
@@ -372,9 +355,6 @@ class HeidenhainTNC7_Profinet(AbstractDevice):
         :return: {"status": "ok", "response": <the bridge's JSON reply>}. Raises on failure (503 when
                  the bridge does not respond within _BRIDGE_TIMEOUT_S, 500 when it replies with an
                  HTTP error or a reply that is not JSON).
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     Q.5 (7.1.17.5)
         """
         try:
             # Connects to TNC Remo Server to load the file specified

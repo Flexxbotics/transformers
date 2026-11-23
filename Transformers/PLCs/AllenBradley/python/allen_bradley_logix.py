@@ -86,10 +86,12 @@ class AllenBradleyLogix(AbstractDevice):
     ------
     Failures raise the runtime's exceptions, which the API returns as HTTP
     errors carrying the message: BadRequestException (400) for bad args or an
-    unknown command, ServiceUnavailableException (503) when the PLC does not
-    respond, ServerErrorException (500) for anything else, including a tag
-    read or write the PLC rejected.  _read_status never raises (it returns
-    "ERROR"), and neither does _read_interval_data.
+    unknown command, ServiceUnavailableException (503) when the connection to
+    the PLC cannot be opened, ServerErrorException (500) for anything else,
+    including a tag read or write the PLC rejected and a PLC that stops
+    answering on an open session (pycomm3 raises CommError, which is not a
+    network error).  _read_status never raises (it returns "ERROR"), and
+    neither does _read_interval_data.
     """
 
     def __init__(self, device: Device):
@@ -137,7 +139,7 @@ class AllenBradleyLogix(AbstractDevice):
         Supported commands
         ------------------
         connect
-            Explicitly open EtherNet/IP connection.
+            Explicitly open EtherNet/IP connection (does nothing when already connected).
             Returns: {"status": "ok", "connected": true}
 
         disconnect
@@ -146,32 +148,39 @@ class AllenBradleyLogix(AbstractDevice):
 
         read_tag
             Read a single controller or program tag.
-            Args: tag (str)  e.g. "ConveyorRunning", "Program:Main.PartCount"
-            Returns: {"tag": "...", "value": <value>, "status": "..."}
+            Args: tag (str, required)  e.g. "ConveyorRunning", "Program:Main.PartCount"
+            Returns: {"status": "ok", "tag": "...", "value": <value>}
+            A read that returns no value raises 500.
 
         read_tags
             Read multiple tags in a single CIP round-trip.
-            Args: tags ([str])
-            Returns: {"tags": {"TagA": <val>, "TagB": <val>, ...}}
+            Args: tags ([str], required)
+            Returns: {"status": "ok", "tags": {"TagA": <val>, "TagB": <val>, ...}}
+            A tag the PLC cannot read comes back as null (no error is raised).
+            With exactly one tag the result is {"": null}: pycomm3 returns a
+            single Tag, not a list, and the protocol iterates its fields.
 
         write_tag
             Write a value to a single tag.
-            Args: tag (str), value (<any>)
-            Returns: {"tag": "...", "value": <value>, "status": "..."}
+            Args: tag (str, required), value (<any>, required: the key must be present)
+            Returns: {"status": "ok", "tag": "...", "value": <value>}
 
         write_tags
             Write multiple tags in a single CIP round-trip.
-            Args: writes ([{"tag": str, "value": <any>}, ...])
-            Returns: {"writes": [{"tag": "...", "status": "..."}, ...]}
+            Args: writes ([{"tag": str, "value": <any>}, ...], required)
+            Returns: {"status": "ok", "writes": [{"tag": "...", "status": "ok"}, ...]}
+            Raises 500 if the PLC rejects any of the writes.
 
         get_tag_list
             Retrieve the controller tag list (controller-scoped tags only).
             Args: prefix (str, optional) — filter tags starting with this string
-            Returns: {"tags": ["TagA", "TagB", ...]}
+            Returns: {"status": "ok", "tags": ["TagA", "TagB", ...]}
+            Currently fails with 500 whenever the PLC has tags (see _get_tag_list).
 
         Errors raise: 400 for missing/invalid args or an unknown command,
-        503 when the PLC does not respond, 500 otherwise (including a tag
-        read or write the PLC rejected).
+        503 when the connection to the PLC cannot be opened, 500 otherwise
+        (including a tag read or write the PLC rejected, and a PLC that stops
+        answering on an open session).
         """
         args = self._parse_args(command_args)
         self._info(message=f"Sending command: {command_name}")
@@ -228,9 +237,11 @@ class AllenBradleyLogix(AbstractDevice):
 
     def _read_interval_data(self) -> str:
         """
-        Periodic poll. Reads metaData.status_tag if configured; otherwise
-        returns current connection status without a PLC round-trip.
-        Never raises.
+        Periodic poll. Reads metaData.status_tag if configured and returns
+        {"status": "ok", "tag": ..., "value": ...}; otherwise returns the last
+        _read_status result as {"status": ...} without a PLC round-trip.
+        Returns {"status": "ERROR"} on failure (the runtime discards the
+        value).  Never raises.
         """
         try:
             if self.status_tag:
@@ -244,15 +255,16 @@ class AllenBradleyLogix(AbstractDevice):
 
     def _read_status(self, function: str = None) -> str:
         """
-        Check PLC reachability by reading metaData.status_tag.
+        Check PLC reachability by reading metaData.status_tag: "RUNNING" when
+        the read succeeds (the tag's value is not used), "ERROR" when it fails.
 
-        If no status_tag is configured, attempts a connection to verify the
-        PLC is online and returns "RUNNING" on success.
+        If no status_tag is configured, re-opens the PLC session on every call
+        and returns "RUNNING" on success, "ERROR" on failure.  `function` is
+        ignored.  Never raises.
 
         Note: Logix PLCs do not expose a dedicated run/stop register over
-        EtherNet/IP.  Configure a heartbeat or mode-indicator tag in
-        Studio 5000 and set it in metaData.status_tag for reliable status
-        differentiation.
+        EtherNet/IP, and this method does not interpret the status_tag value,
+        so it reports reachability only.
         """
         try:
             if self.status_tag:
@@ -274,7 +286,8 @@ class AllenBradleyLogix(AbstractDevice):
         Read a tag by name.  variable_name is a Logix tag string
         e.g. "ConveyorRunning", "Drive.Speed", "Program:Main.Counter".
         Returns the value as a plain string.  Raises on failure (503 when the
-        PLC does not respond, 500 when the read fails).
+        connection cannot be opened, 500 when the read fails, including a PLC
+        that stops answering on an open session).
         """
         try:
             return str(self._read_tag(variable_name))
@@ -285,9 +298,10 @@ class AllenBradleyLogix(AbstractDevice):
                         function: str = None) -> str:
         """
         Write a value to a tag.  Attempts to preserve native type by trying
-        int → float → string coercion in that order.
-        Returns the written value.  Raises on failure (503 when the PLC does
-        not respond, 500 when the PLC rejects the write).
+        bool ("true"/"false") → int → float → string coercion in that order.
+        Returns the written value.  Raises on failure (503 when the connection
+        cannot be opened, 500 when the PLC rejects the write or stops answering
+        on an open session).
         """
         try:
             value = self._coerce_value(variable_value)
@@ -309,7 +323,7 @@ class AllenBradleyLogix(AbstractDevice):
         return ""
 
     def _read_file_names(self) -> list:
-        """Return controller tag names as a proxy for 'file' listing."""
+        """Return controller tag names as a proxy for 'file' listing (currently raises; see _get_tag_list)."""
         return self._get_tag_list()
 
     def _read_file(self, file_name: str) -> str:
@@ -329,6 +343,9 @@ class AllenBradleyLogix(AbstractDevice):
         """
         Return controller-scoped tag names from the PLC.
         Filtered by prefix when provided.  Raises on failure.
+        Note: pycomm3's get_tag_list() returns dicts, and this reads
+        t.tag_name, so it currently raises ServerErrorException (500,
+        AttributeError) whenever the PLC has any tags.
         """
         try:
             self._ensure_connected()
@@ -405,7 +422,7 @@ class AllenBradleyLogix(AbstractDevice):
 
     @staticmethod
     def _coerce_value(raw: str):
-        """Try int, then float, then bool keyword, then return as-is string."""
+        """Try bool keyword ("true"/"false"), then int, then float, then return as-is string."""
         lower = raw.strip().lower()
         if lower == "true":
             return True

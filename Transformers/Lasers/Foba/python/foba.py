@@ -138,9 +138,9 @@ class FOBA(AbstractDevice):
 
     def __init__(self, device: Device):
         """
-        Template device class. Inherits AbstractDevice class.
+        FOBA laser marker device class (ASCII commands over TCP).
 
-        :param Device:
+        :param device:
                     the device object
 
         :return:    a new instance
@@ -190,8 +190,9 @@ class FOBA(AbstractDevice):
         run_program
             Starts the loaded job. Returns: {"status": "ok", "value": "OK"}
 
-        Errors raise: 400 for missing args or an unknown command, 503 when the laser
-        does not respond, 500 when it replies with an error.
+        Errors raise: 400 for missing args or an unknown command, 500 when the laser
+        does not respond or replies with an error (protocols.tcp.TCP does not raise
+        network errors, so there is no 503).
 
         :param command_name:
                     the command to be executed
@@ -199,9 +200,6 @@ class FOBA(AbstractDevice):
                     json with the arguments for the command
 
         :return:    the response after execution of command.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         # Parse the command from the incoming request
         args = self._parse_args(command_args)
@@ -278,14 +276,9 @@ class FOBA(AbstractDevice):
 
     def _read_interval_data(self) -> str:
         """
-        Method to read the status of the device on an interval
+        Not used by this transformer: does nothing.
 
-        :return:    status - string
-
-        :author:    tylerjm@flexxbotics.com
-        :author:    sanua@flexxbotics.com
-
-        :since:     ODOULS.3 (7.1.15.3)
+        :return:    None
         """
         pass
 
@@ -298,9 +291,6 @@ class FOBA(AbstractDevice):
 
         :return:    status - the laser's GETSTATUS meaning ("IDLE", "RUNNING", "OFFLINE", ...),
                     or "ERROR" when the laser cannot be read
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         try:
             self._ensure_connected()
@@ -322,11 +312,8 @@ class FOBA(AbstractDevice):
         :param function:
                     Ignored
 
-        :return:    value - string. Raises on failure (503 when the laser does not respond,
-                    500 when it replies with an error).
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
+        :return:    value - string. Raises 500 on failure (the laser does not respond or
+                    replies with an error).
         """
         try:
             self._ensure_connected()
@@ -360,9 +347,6 @@ class FOBA(AbstractDevice):
                     Ignored
 
         :return:    the written value - string. Raises on failure.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         try:
             self._ensure_connected()
@@ -386,9 +370,6 @@ class FOBA(AbstractDevice):
         """
         Method to write the specified parameter on the device. The laser has no separate
         parameter concept; this writes the Mark-US variable of that name.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         return self._write_variable(parameter_name, parameter_value, function)
 
@@ -396,20 +377,14 @@ class FOBA(AbstractDevice):
         """
         Method to read the specified parameter from the device. The laser has no separate
         parameter concept; this reads the Mark-US variable of that name.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         return self._read_variable(parameter_name, function)
 
     def _read_file_names(self) -> list:
         """
-        Method to get a list of filenames from the device
+        Not implemented: does not contact the laser.
 
-        :return:    list of filenames
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     KEYSTONE.4 (7.1.11.4)
+        :return:    an empty list
         """
 
         # Return list of available filenames from the device
@@ -419,15 +394,12 @@ class FOBA(AbstractDevice):
 
     def _write_file(self, file_name: str, file_data: str):
         """
-        Method to write a file to a device
+        Not implemented: does nothing.
 
         :param file_name:
                     the name of the file to write.
         :param file_data:
                     the data of the file to write as base64 string.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         pass
 
@@ -437,9 +409,6 @@ class FOBA(AbstractDevice):
 
         :param file_name: the name of the file to load into memory
         :return: the laser's LOADJOB meaning ("OK", "FILE NOT FOUND", "BUSY", ...)
-
-        :author:    zacc@flexxbotics.com
-        :since:     MODELO.3 (7.1.13.3)
         """
         try:
             self._ensure_connected()
@@ -455,12 +424,9 @@ class FOBA(AbstractDevice):
             Method to run the active program on the device
 
             :param function:
-                        Optional parameter to provide the name of a function to run - string
+                        Ignored
 
             :return:    the laser's STARTJOB meaning ("OK", "BUSY", "NO JOB", ...)
-
-            :author:    tylerjm@flexxbotics.com
-            :since:     P.2 (7.1.16.2)
         """
         try:
             self._ensure_connected()

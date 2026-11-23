@@ -50,9 +50,10 @@ class HaasSerial(AbstractDevice):
 
     def __init__(self, device: Device):
         """
-        Template device class. Inherits AbstractDevice class.
+        Haas legacy control transformer (Q commands over RS-232). Does not open the serial port.
+        Raises ValueError when metaData has no 'port'.
 
-        :param Device:
+        :param device:
                     the device object
 
         :return:    a new instance
@@ -123,9 +124,6 @@ class HaasSerial(AbstractDevice):
 
         Errors raise: 400 for an unknown command, 503 when the serial port
         cannot be used, 500 for an unexpected or empty reply.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         # Parse the command from the incoming request
         args = self._parse_args(command_args)
@@ -151,13 +149,13 @@ class HaasSerial(AbstractDevice):
 
     def _read_interval_data(self) -> str:
         """
-        Method to read the status of the device on an interval
+        Method called on the poll interval. Reads the status again (_read_status). When it is not
+        RUNNING or IDLE_SPINDLE, reads the active program (?Q500), sets it as the latest run
+        record's partNumber ("NOT_REPORTED" when blank or unreadable) and resets partCount when it
+        changed, then reads the CNC part count (?Q500) and creates a PartCountEvent when it changed.
+        Errors are logged, never raised.
 
-        :return:    status - string
-
-        :author:    tylerjm@flexxbotics.com
-
-        :since:     ROLLING ROCK.5 (7.1.18.5)
+        :return:    None
         """
         try:
             # Get the most recent run record
@@ -226,11 +224,9 @@ class HaasSerial(AbstractDevice):
         :param function:
                     Ignored.
 
-        :return:    status - string: RUNNING, IDLE_SPINDLE, NO_DATA, UNKNOWN_HAAS_STATE or the
-                    PROGRAM status field; "ERROR" when the machine cannot be read.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ROLLING ROCK.5 (7.1.18.5)
+        :return:    status - string: RUNNING, IDLE_SPINDLE, NO_DATA (empty ?Q500 reply),
+                    UNKNOWN_HAAS_STATE or the PROGRAM status field; "ERROR" when the serial
+                    port cannot be used or a read raises.
         """
         status = ""
         try:
@@ -297,9 +293,6 @@ class HaasSerial(AbstractDevice):
                     Ignored.
 
         :return:    value - string
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         value = ""
         try:
@@ -330,10 +323,8 @@ class HaasSerial(AbstractDevice):
         :param function:
                     Ignored.
 
-        :return:    value - string
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
+        :return:    value - string: always "", since the write only succeeds when the reply's
+                    first field is empty (including no reply); any other reply raises 500.
         """
         value = ""
         try:
@@ -353,21 +344,20 @@ class HaasSerial(AbstractDevice):
 
     def _write_parameter(self, parameter_name: str, parameter_value: str, function: str = None) -> str:
         """
-        Method to write the specified parameter on the device
+        Method to write the specified parameter on the device. Sent as a macro variable
+        write (?E), the same as _write_variable.
 
-        :param parameter:
-                    The parameter to write - string
+        :param parameter_name:
+                    The macro variable number to write - string
 
-        :param parameter:
+        :param parameter_value:
                     The value of the parameter to write - string
 
         :param function:
                     Ignored.
 
-        :return:    value - string
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
+        :return:    value - string: always "", since the write only succeeds when the reply's
+                    first field is empty (including no reply); any other reply raises 500.
         """
         value = ""
         try:
@@ -389,16 +379,13 @@ class HaasSerial(AbstractDevice):
         """
         Method to read the specified parameter from the device
 
-        :param parameter:
-                    The parameter to write - string
+        :param parameter_name:
+                    The macro variable number to read (?Q600) - string
 
         :param function:
                     Ignored.
 
         :return:    value - string
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         value = ""
         try:
@@ -418,12 +405,9 @@ class HaasSerial(AbstractDevice):
 
     def _read_file_names(self) -> list:
         """
-        Method to get a list of filenames from the device
+        Method to get a list of filenames from the device. Not implemented.
 
-        :return:    list of filenames
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     KEYSTONE.4 (7.1.11.4)
+        :return:    an empty list, always
         """
 
         # Return list of available filenames from the device
@@ -433,27 +417,21 @@ class HaasSerial(AbstractDevice):
 
     def _write_file(self, file_name: str, file_data: str):
         """
-        Method to write a file to a device
+        Not implemented: does nothing, so no file is written.
 
         :param file_name:
                     the name of the file to write.
         :param file_data:
                     the data of the file to write as base64 string.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         pass
 
     def _load_file(self, file_name: str):
         """
-        Loads a file into memory on the device
+        Not implemented: does nothing, so no file is loaded.
 
         :param file_name: the name of the file to load into memory
-        :return: the file name
-
-        :author:    zacc@flexxbotics.com
-        :since:     MODELO.3 (7.1.13.3)
+        :return: None (the body is empty)
         """
         pass
 

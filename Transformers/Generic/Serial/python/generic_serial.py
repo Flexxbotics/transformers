@@ -64,10 +64,14 @@ class GenericSerial(AbstractDevice):
     dsrdtr              : Hardware flow control DSR/DTR: "true"/"false"
                           (default "false")
     write_timeout       : Write timeout in seconds (default 10.0)
-    encoding            : Character encoding for send/receive (default "utf-8")
+    encoding            : Character encoding for outgoing commands (default
+                          "utf-8").  Replies are always decoded as UTF-8, and
+                          the Serial client removes every space, CR, LF, ">",
+                          0x02 and 0x17 from them.
     response_time       : Seconds to wait after sending before reading
                           (default 0.1)
-    buffer_size         : Receive buffer size in bytes (default 1024)
+    buffer_size         : Passed to the Serial client, which ignores it and
+                          reads every byte waiting (default 1024)
     command_terminator  : String appended to every outgoing command.
                           Most devices expect CR+LF ("\\r\\n"), some expect
                           only CR ("\\r") or LF ("\\n") (default "\\r\\n")
@@ -98,11 +102,13 @@ class GenericSerial(AbstractDevice):
     Errors
     ------
     Failures raise the runtime's exceptions, which the API returns as HTTP
-    errors carrying the message: BadRequestException (400) for bad args or an
-    unknown command, ServiceUnavailableException (503) when the port cannot be
-    opened or the send/receive fails, ServerErrorException (500) for anything
-    else.  _read_status never raises (it returns "ERROR"), and neither does
-    _read_interval_data.
+    errors carrying the message: BadRequestException (400) for missing or
+    non-JSON args or an unknown command, ServiceUnavailableException (503)
+    when the port cannot be opened or the send/receive fails,
+    ServerErrorException (500) for anything else (including a non-numeric
+    value for a numeric arg).  A device that sends nothing back is not an
+    error: the reply is "".  _read_status never raises (it returns "ERROR"),
+    and neither does _read_interval_data.
     """
 
     def __init__(self, device: Device):
@@ -164,11 +170,12 @@ class GenericSerial(AbstractDevice):
         Supported commands
         ------------------
         connect
-            Open the serial port.
+            Check that the serial port can be opened (opens and closes it;
+            nothing is held open).
             Returns: {"status": "ok", "connected": true, "port": "..."}
 
         disconnect
-            Close the serial port.
+            Clear the connected flag (no port is held open).
             Returns: {"status": "ok", "connected": false}
 
         send
@@ -176,18 +183,20 @@ class GenericSerial(AbstractDevice):
             Args: command (str, required) — raw command to send
                   terminator (str, optional) — overrides metaData.command_terminator
                   response_time (float, optional) — seconds to wait for response
-                  buffer_size (int, optional) — receive buffer size in bytes
+                  buffer_size (int, optional) — passed on but ignored by the
+                          Serial client
             Returns: {"status": "ok", "command": "...", "response": "..."}
 
         receive
             Read data from the serial port without sending anything first.
-            Useful for streaming devices that push data continuously.
-            Args: buffer_size (int, optional)
+            Opens the port, reads only the bytes already waiting (it does not
+            wait), then closes it, so little or nothing has usually arrived.
+            Args: buffer_size (int, optional) — ignored by the Serial client
             Returns: {"status": "ok", "response": "..."}
 
-        Errors raise: 400 for missing/invalid args or an unknown command,
+        Errors raise: 400 for missing or non-JSON args or an unknown command,
         503 when the port cannot be opened or the send/receive fails,
-        500 otherwise.
+        500 otherwise (including a non-numeric value for a numeric arg).
         """
         args = self._parse_args(command_args)
         self._info(message=f"Sending command: {command_name}")
@@ -271,6 +280,9 @@ class GenericSerial(AbstractDevice):
         When status_ok_response is set, its presence in the response maps to
         "RUNNING"; any other response is returned verbatim.
         When status_ok_response is blank, the raw response is returned as-is.
+        An empty response returns "UNAVAILABLE" when status_ok_response is
+        blank, and "" (no status to report) when it is set.  Any failure
+        returns "ERROR" (never raises).
         """
         if not self.status_command:
             self.status = "NOT_CONFIGURED"
@@ -295,7 +307,8 @@ class GenericSerial(AbstractDevice):
     def _read_variable(self, variable_name: str, function: str = None) -> str:
         """
         Send variable_name as the serial command and return the response as a
-        plain string.  metaData.command_terminator is appended automatically.
+        plain string ("" when nothing has arrived after response_time).
+        metaData.command_terminator is appended automatically.
         Raises on failure (503 when the send/receive fails, 500 otherwise).
         """
         try:
@@ -349,7 +362,8 @@ class GenericSerial(AbstractDevice):
         """
         Serial ports are opened per call by _send, so nothing is held open.
         "Connected" means the port could be opened: open it once and close it
-        again.  Raises ServiceUnavailableException (503) when it can't.
+        again.  Raises when it can't: pyserial's SerialException or
+        ServiceUnavailableException, both of which become 503.
         """
         if self._connected:
             return
@@ -371,7 +385,7 @@ class GenericSerial(AbstractDevice):
             self._connect()
 
     def _make_client(self) -> Serial:
-        """Create a configured Serial protocol instance."""
+        """Create a configured Serial protocol instance (pyserial opens the port as it is created)."""
         return Serial(
             port=self.port,
             baudrate=self.baudrate,

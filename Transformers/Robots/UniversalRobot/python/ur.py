@@ -51,12 +51,6 @@ class _TimeoutTransport(xmlrpc.client.Transport):
 class UR(AbstractDevice):
     """
     The device transformer for the Universal Robot.
-
-    :author:    cristc@flexxbotics.com
-    :author:    tylerjm@flexxbotics.com
-    :author:    johnc@flexxbotics.com
-    `
-    :since:     KEYSTONE.4 (7.1.11.4)
     """
 
     # The XML-RPC methods the bundled URCap registers (extensions/connect.v2-8.1.16.5.urcap,
@@ -87,7 +81,7 @@ class UR(AbstractDevice):
     def __init__(self, device: Device):
         """
         Universal Robot device class.
-        :param Device:
+        :param device:
                     the device object
 
         metaData: ip_address (required), port (default "49495"),
@@ -132,8 +126,8 @@ class UR(AbstractDevice):
         Executes the command sent to the device.
 
         connect / disconnect
-            Create / drop the XML-RPC proxy; connect also checks that the URCap answers
-            (get_robot_state). Returns {"status": "ok", "connected": true|false}.
+            Create / drop the XML-RPC proxy; no call is made to the URCap.
+            Returns {"status": "ok", "connected": true|false}.
         <URCap method> (one of URCAP_METHODS, or an alias in COMMAND_ALIASES)
             Calls that URCap method with the arg values as positional arguments, in the
             order given. move_to_joints uses args["timeout"] (seconds) as its socket timeout.
@@ -148,9 +142,6 @@ class UR(AbstractDevice):
                     json with the arguments for the command
 
         :return:    the response after execution of command.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         args = self._parse_args(command_args)
         self._info(message="Sending command: " + command_name)
@@ -185,14 +176,9 @@ class UR(AbstractDevice):
 
     def _read_interval_data(self) -> str:
         """
-        Method to read the status of the device on an interval
+        Not used by this transformer: does nothing.
 
-        :return:    status - string
-
-        :author:    tylerjm@flexxbotics.com
-        :author:    sanua@flexxbotics.com
-
-        :since:     ODOULS.3 (7.1.15.3)
+        :return:    None
         """
         pass
 
@@ -201,12 +187,9 @@ class UR(AbstractDevice):
         Method to read the status of the robot
 
         :param function:
-                    Optional parameter to provide the name of a function to run - string
+                    Ignored
 
         :return:    status - string
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         try:
             self._robot_state = self._get_state()
@@ -237,9 +220,6 @@ class UR(AbstractDevice):
 
         :return:    value - string: the URCap's get_variable reply. Raises on failure or ">ERROR<"
                     (variable not set).
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         try:
             self._ensure_connected()
@@ -261,12 +241,9 @@ class UR(AbstractDevice):
                     The value of the variable to write - string
 
         :param function:
-                    Optional parameter to provide the name of a function to run - string
+                    Ignored
 
         :return:    value - string: the URCap's reply (the value written). Raises on failure.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         try:
             self._ensure_connected()
@@ -281,19 +258,16 @@ class UR(AbstractDevice):
         """
         Method to write the specified parameter on the robot
 
-        :param parameter:
+        :param parameter_name:
                     The parameter to write - string
 
-        :param parameter:
+        :param parameter_value:
                     The value of the parameter to write - string
 
         :param function:
-                    Optional parameter to provide the name of a function to run - string
+                    Ignored
 
         :return:    value - string: the URCap's reply (the value written). Raises on failure.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         try:
             self._ensure_connected()
@@ -308,7 +282,7 @@ class UR(AbstractDevice):
         """
         Method to read the specified parameter from the robot
 
-        :param parameter:
+        :param parameter_name:
                     The URCap value key - string
 
         :param function:
@@ -316,9 +290,6 @@ class UR(AbstractDevice):
 
         :return:    value - string: the URCap's get_value reply. Raises on failure or ">ERROR<"
                     (value not set).
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         try:
             self._ensure_connected()
@@ -331,15 +302,12 @@ class UR(AbstractDevice):
 
     def _run_program(self, function: str = None) -> str:
         """
-            Method to run the active program on the device
+            Method to run the active program on the device (URCap play_program)
 
             :param function:
-                        Optional parameter to provide the name of a function to run - string
+                        Ignored
 
-            :return:    value - string
-
-            :author:    tylerjm@flexxbotics.com
-            :since:     P.2 (7.1.16.2)
+            :return:    value - string: the URCap's play_program reply. Raises on failure or ">ERROR<".
         """
         self._info(message="UR- Sending command to run program...")
         try:
@@ -358,9 +326,6 @@ class UR(AbstractDevice):
         Method to get a list of filenames from the device
 
         :return:    list of filenames
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     KEYSTONE.4 (7.1.11.4)
         """
 
         # Return list of available filenames from the device
@@ -386,9 +351,6 @@ class UR(AbstractDevice):
                     the name of the file to read.
 
         :return:    the file's data as base64 string
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     KEYSTONE.4 (7.1.11.4)
         """
         # Reads the file content off the device
         try:
@@ -406,9 +368,6 @@ class UR(AbstractDevice):
                     the name of the file to write.
         :param file_data:
                     the data of the file to write as base64 string
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         try:
             self._transfer_file_to_device(file_name=file_name, file_data=file_data)
@@ -417,13 +376,10 @@ class UR(AbstractDevice):
 
     def _load_file(self, file_name: str):
         """
-        Loads a file into memory on the device
+        Loads a file into memory on the device (URCap load_robot_program)
 
         :param file_name: the name of the file to load into memory
-        :return: the file name
-
-        :author:    zacc@flexxbotics.com
-        :since:     MODELO.3 (7.1.13.3)
+        :return: None. Raises on failure or ">ERROR<".
         """
 
         # Load the file into memory on the UR
@@ -466,7 +422,7 @@ class UR(AbstractDevice):
 
     @staticmethod
     def _check_reply(reply, action: str) -> None:
-        """The URCap answers ">ERROR<" when a call fails on the robot."""
+        """The URCap answers ">ERROR<" when a call fails on the robot; raise ServerErrorException (HTTP 500) for that reply."""
         if isinstance(reply, str) and ">ERROR<" in reply:
             raise ServerErrorException(f"{action}: URCap returned {reply}")
 
@@ -478,9 +434,6 @@ class UR(AbstractDevice):
                     the time as a string: to convert.
 
         :return:    the converted time in microseconds
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     KEYSTONE.4 (7.1.11.4)
         """
         # Convert the cycle time from hh:mm:ss.mmmm to milliseconds
         hours, minutes, seconds = hms_time_string.split(":")
@@ -502,10 +455,9 @@ class UR(AbstractDevice):
         """
         Method to get state data from the universal robot
 
-        :return:    json string with the state
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     KEYSTONE.4 (7.1.11.4)
+        :return:    the state as a dict (the parsed get_robot_state reply); {"status": "ROBOT_DISCONNECTED"}
+                    when the connection is refused or there is no route to the robot, {} on any other
+                    failure. Never raises.
         """
         try:
             self._ensure_connected()
@@ -538,9 +490,6 @@ class UR(AbstractDevice):
             the file data
 
         :return:    the file data
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     KEYSTONE.4 (7.1.11.4)
         """
         self._info("transferring program file")
         try:
@@ -569,9 +518,6 @@ class UR(AbstractDevice):
                     the name of the file to transfer
 
         :return:    the data associated with the named file.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     KEYSTONE.4 (7.1.11.4)
         """
         self._info("backing up program file")
         program_file_path = self._programs_directory + file_name

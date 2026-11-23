@@ -50,9 +50,10 @@ class BeckhoffTwinCAT(AbstractDevice):
     This is a generic ADS driver: it exposes connect/disconnect/read/write and
     symbol enumeration.  It intentionally makes no assumptions about the PLC
     program running on the target, so `_read_status` is left unimplemented (see
-    the TODO in that method).  A machine-specific subclass (see the Holzman
-    Beckhoff transformer for an example) is where you wire status, part counts,
-    and fault detection to the actual PLC symbols exported by your project.
+    the TODO in that method).  A machine-specific transformer (the Holzman
+    Beckhoff transformer, a copy of this driver, is an example) is where you wire
+    status, part counts, and fault detection to the actual PLC symbols exported
+    by your project.
 
     Supported hardware (all run TwinCAT via ADS):
       CX Series  : CX5120, CX5130, CX5140, CX5630, CX5640  (DIN-rail embedded PCs)
@@ -72,8 +73,8 @@ class BeckhoffTwinCAT(AbstractDevice):
       timeout           : ADS timeout in seconds (default 2.0)
       retry             : connection retry attempts (default 2)
       retry_interval    : delay between retries in seconds (default 0.1)
-      auto_connect      : whether the ADS wrapper connects on construction
-                          (default True)
+      auto_connect      : whether the ADS wrapper reconnects by itself when a
+                          read/write finds it disconnected (default True)
 
     Beckhoff-specific nuances
     -------------------------
@@ -101,9 +102,11 @@ class BeckhoffTwinCAT(AbstractDevice):
     ------
     Failures raise the runtime's exceptions, which the API returns as HTTP
     errors carrying the message: BadRequestException (400) for bad args or an
-    unknown command, ServiceUnavailableException (503) when the device does not
-    respond, ServerErrorException (500) for anything else.  _read_status never
-    raises, and neither does _read_interval_data.
+    unknown command, ServiceUnavailableException (503) when the ADS client fails
+    to open, ServerErrorException (500) for anything else, including ADS errors
+    from a PLC that does not answer (pyads raises ADSError, which is not a
+    network error, and opening the client does not contact the PLC).
+    _read_status never raises, and neither does _read_interval_data.
     """
 
     # ############################################################################## #
@@ -118,7 +121,7 @@ class BeckhoffTwinCAT(AbstractDevice):
           - ams_net_id: "x.x.x.x.x.x" (TwinCAT AMS Net ID of the target)
           - ip_address: "a.b.c.d" (optional for pyads, but typically provided)
           - ams_port: int (TwinCAT 2 often 801; TwinCAT 3 often 851)
-          - local_ams_net_id: "x.x.x.x.x.x" (AMS Net ID of this host)
+          - local_ams_net_id: "x.x.x.x.x.x" (AMS Net ID of this host; optional)
           - timeout: float seconds (optional)
           - retry: int (optional)
           - retry_interval: float seconds (optional)
@@ -170,36 +173,42 @@ class BeckhoffTwinCAT(AbstractDevice):
         """
         Executes the command sent to the device.
 
-        Commands:
-          - connect
-          - disconnect
+        Commands (each returns a JSON string):
+          - connect       -> {"status": "ok", "connected": true}
+          - disconnect    -> {"status": "ok", "connected": false}
           - read          (reads an ADS symbol)
+                          -> {"status": "ok", "symbol": ..., "plc_type": ..., "value": ...}
           - write         (writes an ADS symbol)
-          - list_symbols  (enumerates the PLC symbols on the target)
+                          -> {"status": "ok", "symbol": ..., "value": ...}
+          - list_symbols  (enumerates the PLC symbols on the target, over a
+                          separate raw pyads connection)
+                          -> {"status": "ok", "count": n, "symbols": [...]}
 
         Args are a JSON object, or the same object wrapped as {"value": "<json>"}.
 
         read command args:
           {
-            "symbol": "MAIN.bConveyorRunning",
-            "plc_type": "BOOL"
+            "symbol": "MAIN.bConveyorRunning",   # required
+            "plc_type": "BOOL"                   # optional, default "INT"
           }
 
         write command args:
           {
-            "symbol": "MAIN.nSetpoint",
-            "value": 42,
-            "plc_type": "INT"
+            "symbol": "MAIN.nSetpoint",   # required
+            "value": 42,                  # required, not null
+            "plc_type": "INT"             # optional, default "INT"
           }
 
         list_symbols command args:
           {
             "prefix": "MAIN.",   # optional
-            "limit": 200          # optional
+            "limit": 200          # optional, default 200
           }
 
-        Errors raise: 400 for missing/invalid args or an unknown command,
-        503 when the device does not respond, 500 otherwise.
+        Errors raise: 400 for invalid JSON args, a missing symbol or value, an
+        unsupported plc_type or an unknown command; 503 when the ADS client
+        fails to open; 500 otherwise, including ADS errors from a PLC that
+        does not answer (pyads raises ADSError, which is not a network error).
         """
         args = self._parse_args(command_args)
         self._info(message=f"Sending command: {command_name}")
@@ -260,13 +269,14 @@ class BeckhoffTwinCAT(AbstractDevice):
 
     def _read_interval_data(self) -> str:
         """
-        Method to read the status of the device on an interval.
+        Called on every poll; returns None.
 
-        Generic driver: this simply ensures the ADS connection is alive.  A
-        machine-specific subclass should read the PLC symbols it cares about
-        here (machine state, active program, part counts, faults) and forward
-        them to the run-record / event services, as the Holzman Beckhoff
-        transformer does.  Never raises.
+        Generic driver: this only opens the ADS client when it is not open yet
+        (opening does not contact the PLC, so this does not check that the PLC
+        is answering).  A machine-specific subclass should read the PLC symbols
+        it cares about here (machine state, active program, part counts, faults)
+        and forward them to the run-record / event services, as the Holzman
+        Beckhoff transformer does.  Never raises.
         """
         try:
             self._ensure_connected()
@@ -280,6 +290,8 @@ class BeckhoffTwinCAT(AbstractDevice):
         Left unimplemented in the generic driver — TwinCAT does not expose a
         universal "machine status" over ADS; status lives in whatever symbols
         the PLC program happens to define, and those differ per machine.
+        Always returns "" (nothing to report) without contacting the PLC;
+        `function` is ignored.
 
         TODO: implement by reading the PLC symbols that represent status on
         your target and mapping them to a status string, e.g.:
@@ -308,8 +320,9 @@ class BeckhoffTwinCAT(AbstractDevice):
         """
         Read a PLC symbol by name.  variable_name is the fully-qualified
         TwinCAT symbol path, e.g. "MAIN.bConveyorRunning" or ".ACHSSTATUS".
-        Returns the value as a plain string; `function` is ignored.
-        Raises on failure (503 when the device does not respond, 500 otherwise).
+        Returns the value as a plain string ("" for None); `function` is
+        ignored.  Raises on failure: 503 when the ADS client fails to open,
+        500 otherwise (including ADS errors from a PLC that does not answer).
         """
         try:
             self._ensure_connected()
@@ -326,8 +339,8 @@ class BeckhoffTwinCAT(AbstractDevice):
         """
         Write a value to a PLC symbol.  Coerces the string value to bool → int →
         float → str before writing.  Returns the written value; `function` is
-        ignored.  Raises on failure (503 when the device does not respond, 500
-        otherwise).
+        ignored.  Raises on failure: 503 when the ADS client fails to open, 500
+        otherwise (including ADS errors from a PLC that does not answer).
         """
         try:
             self._ensure_connected()
@@ -436,7 +449,8 @@ class BeckhoffTwinCAT(AbstractDevice):
 
     def _list_symbols(self, prefix: Optional[str] = None, limit: int = 200) -> List[str]:
         """
-        List all symbols in the TwinCAT project, optionally filtered by prefix.
+        List the symbol names in the TwinCAT project, optionally filtered by
+        prefix, returning at most `limit` of them (at least 1).
         Opens a fresh raw pyads connection to avoid interfering with the main
         ADS client session.
         """
@@ -459,8 +473,9 @@ class BeckhoffTwinCAT(AbstractDevice):
 
         Accepts:
           - None
-          - integer (already a PLCTYPE value)
+          - integer (returned unchanged, assumed to be a PLCTYPE value)
           - string like "INT", "BOOL", etc.
+        Returns None for None, an unknown name, or any other type.
         """
         if plc_type is None:
             return None

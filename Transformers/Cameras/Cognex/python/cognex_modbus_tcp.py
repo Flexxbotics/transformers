@@ -34,9 +34,11 @@ class CognexModbusTCP(AbstractDevice):
 
     def __init__(self, device: Device):
         """
-        Template device class. Inherits AbstractDevice class.
+        Cognex In-Sight camera device class: native string commands sent over Modbus TCP.
+        Reads metaData "ip_address" and "port" (both required; ValueError when missing).
+        Does not connect.
 
-        :param Device:
+        :param device:
                     the device object
 
         :return:    a new instance
@@ -111,9 +113,6 @@ class CognexModbusTCP(AbstractDevice):
                     json with the arguments for the command
 
         :return:    the response after execution of command.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         # Parse the command from the incoming request
         args = self._parse_args(command_args)
@@ -135,14 +134,9 @@ class CognexModbusTCP(AbstractDevice):
 
     def _read_interval_data(self) -> str:
         """
-        Method to read the status of the device on an interval
+        Does nothing; no interval data is read.
 
-        :return:    status - string
-
-        :author:    tylerjm@flexxbotics.com
-        :author:    sanua@flexxbotics.com
-
-        :since:     ODOULS.3 (7.1.15.3)
+        :return:    None
         """
         pass
 
@@ -154,9 +148,6 @@ class CognexModbusTCP(AbstractDevice):
                     Ignored
 
         :return:    status - "ONLINE" / "OFFLINE", or "ERROR" when the camera cannot be read
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         try:
             self._ensure_connected()
@@ -188,10 +179,9 @@ class CognexModbusTCP(AbstractDevice):
         :param function:
                     Ignored
 
-        :return:    value - string. Raises on failure (503 when the camera does not respond, 500 otherwise).
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
+        :return:    value - string. Raises on failure (503 when the camera does not acknowledge the
+                    command within about 5 s or on a raw socket error, 500 otherwise, including
+                    when pymodbus cannot reach the camera).
         """
         try:
             value = self._send_string_command("GV" + variable_name)
@@ -201,15 +191,12 @@ class CognexModbusTCP(AbstractDevice):
 
     def _run_program(self, function: str = None):
         """
-            Method to run the active program on the device
+            Method to run the active program on the device: sends the native "SW8" command
 
             :param function:
-                        Optional parameter to provide the name of a function to run - string
+                        Ignored
 
-            :return:    value - string
-
-            :author:    tylerjm@flexxbotics.com
-            :since:     P.2 (7.1.16.2)
+            :return:    the camera's reply - string, or "Error sending program" on failure (never raises)
         """
         try:
             response = self._send_string_command("SW8")
@@ -224,9 +211,6 @@ class CognexModbusTCP(AbstractDevice):
         Method to get a list of filenames from the device
 
         :return:    list of filenames
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     KEYSTONE.4 (7.1.11.4)
         """
 
         # Return list of available filenames from the device
@@ -242,12 +226,9 @@ class CognexModbusTCP(AbstractDevice):
         Method to read a file from a device
 
         :param file_name:
-                    the name of the file to read.
+                    the name of the file to read; sent as the native "RJ<file_name>" command.
 
-        :return:    the file's data as base64 string.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     KEYSTONE.4 (7.1.11.4)
+        :return:    the camera's reply as base64 string.
         """
         # Reads the file content off the device
         try:
@@ -259,27 +240,24 @@ class CognexModbusTCP(AbstractDevice):
 
     def _write_file(self, file_name : str, file_data : str):
         """
-        Method to write a file to a device
+        Not supported: does nothing.
 
         :param file_name:
                     the name of the file to write.
         :param file_data:
                     the data of the file to write as base64 string.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         pass
 
     def _load_file(self, file_name : str):
         """
-        Loads a file into memory on the device
+        Loads a job on the camera: takes it offline ("SO0"), sends "SJ<file_name>", reads the
+        current job with "GJ", and puts the camera back online ("SO1", even when the change failed).
+        Raises on failure (503 when the camera does not acknowledge a command, 500 otherwise;
+        see _read_variable).
 
-        :param file_name: the name of the file to load into memory
-        :return: the file name
-
-        :author:    zacc@flexxbotics.com
-        :since:     MODELO.3 (7.1.13.3)
+        :param file_name: the job to load (its number), sent as "SJ<file_name>"
+        :return: "Current Job Set To: " + the reply to "RJ<current job>" - string
         """
 
         #For Cognex Jobs the file name corresponds to an int at the start of the job name

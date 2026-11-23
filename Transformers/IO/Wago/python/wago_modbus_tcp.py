@@ -35,17 +35,14 @@ import json
 class WagoModbusTCP(AbstractDevice):
     """
     The device transformer for the Wago Interface.
-
-    :author:    cadenc@flexxbotics.com
-
-    :since:     PBR.3 (7.1.16.3)
     """
 
     def __init__(self, device: Device):
         """
-        Wago device class. Inherits AbstractDevice class.
-        :param attributes:
-                    attributes of the instance.
+        Wago device class. Inherits AbstractDevice class.  Reads metaData "ip_address"
+        (required; ValueError when missing) and "port" (default 502).  Does not connect.
+        :param device:
+                    the device object
 
         :return:    a new instance
         """
@@ -89,8 +86,10 @@ class WagoModbusTCP(AbstractDevice):
             Args: output (int, required), state ("high" or "low", required).
             Returns {"status": "ok", "output": <n>, "state": "high"|"low"}.
 
-        Errors raise: 400 for an unknown command or bad args, 503 when the coupler does not
-        respond, 500 otherwise.
+        Errors raise: 400 for an unknown command or missing, non-JSON or invalid args (an output
+        number beyond the coupler's outputs gives 500), 503 when the connection and I/O discovery
+        fail or on a raw socket error, 500 otherwise (pymodbus reports a coupler lost after
+        connecting, or a timeout, as a ModbusException).
         """
         args = self._parse_args(command_args)
         self._info(message=f"Sending command: {command_name}")

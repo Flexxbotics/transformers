@@ -32,7 +32,8 @@ import requests
 class HeidenhainTNC530(AbstractDevice):
     """
     Heidenhain TNC 530 transformer. Loads programs through the TNC Remo bridge (HTTP), which talks
-    to the CNC. Status, variables and files are not supported (the runtime answers 501).
+    to the CNC. Status is not read (_read_status always returns ""); variables and file
+    listing/reading/writing are not supported (the runtime answers 501).
 
     Connection parameters (metaData)
     ---------------------------------
@@ -51,9 +52,10 @@ class HeidenhainTNC530(AbstractDevice):
 
     def __init__(self, device: Device):
         """
-        Template device class. Inherits AbstractDevice class.
+        Heidenhain TNC 530 transformer. Reads ip_address and bridge_url from metaData; does not
+        contact the bridge.
 
-        :param Device:
+        :param device:
                     the device object
 
         :return:    a new instance
@@ -98,9 +100,6 @@ class HeidenhainTNC530(AbstractDevice):
                     json with the arguments for the command
 
         :return:    the response after execution of command.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     Q.5 (7.1.17.5)
         """
         args = self._parse_args(command_args)
         self._info(message=f"Sending command: {command_name}")
@@ -122,10 +121,7 @@ class HeidenhainTNC530(AbstractDevice):
         """
         Method to read the status of the device on an interval. Nothing to read; never raises.
 
-        :return:    status - string
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     Q.5 (7.1.17.5)
+        :return:    None (the body is empty)
         """
         pass
 
@@ -137,9 +133,6 @@ class HeidenhainTNC530(AbstractDevice):
                     Not used
 
         :return:    status - string: always "" (nothing to report), since the bridge has no status read
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     Q.5 (7.1.17.5)
         """
         return ""
 
@@ -151,9 +144,6 @@ class HeidenhainTNC530(AbstractDevice):
         :return: {"status": "ok", "response": <the bridge's JSON reply>}. Raises on failure (503 when
                  the bridge does not respond within _BRIDGE_TIMEOUT_S, 500 when it replies with an
                  HTTP error or a reply that is not JSON).
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     Q.5 (7.1.17.5)
         """
         try:
             self._ensure_connected()

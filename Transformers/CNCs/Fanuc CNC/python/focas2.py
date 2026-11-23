@@ -133,9 +133,11 @@ class FOCAS2(AbstractDevice):
 
     def __init__(self, device: Device):
         """
-        Template device class. Inherits AbstractDevice class.
+        FANUC CNC transformer (FOCAS2 over Ethernet). Loads the fwlib library but does not
+        connect; the first call that needs the CNC connects. Raises ValueError when metaData
+        has no 'ip_address', and RuntimeError when fwlib cannot be loaded.
 
-        :param Device:
+        :param device:
                     the device object
 
         :return:    a new instance
@@ -189,22 +191,39 @@ class FOCAS2(AbstractDevice):
         :return:    the response after execution of command.
 
         Every command returns {"status": "ok", ...} JSON; a command that reads
-        something returns it in "value":
-            connect / disconnect     -> {"status": "ok", "connected": true|false}
+        something returns it in "value". Args follow the command name; those in
+        [] are optional (default after =), the rest are required:
+            connect [timeout_s=10]   -> {"status": "ok", "connected": true}
+            disconnect               -> {"status": "ok", "connected": false}
             read_status              -> "value": ODBST.run (int)
-            read_status_field        -> "field", "value": that ODBST field (int)
-            wait_for_cnc             -> "value": the ODBST status dict
-            read_macro               -> "value": the macro value (float)
-            read_pmc_range           -> "value": the PMC value
-            get_filenames            -> "value": list of program names
+            read_status_field field  -> "field", "value": that ODBST field (int); field
+                                        is one of hdck, tmmode, aut, run, motion, mstb,
+                                        emergency, alarm, edit
+            wait_for_cnc [poll_s=0.4] [timeout_s=43200]
+                                     -> polls until run == 0, then "value": the ODBST
+                                        status dict
+            read_macro macro [length=10]
+                                     -> "value": the macro value (float)
+            read_pmc_range section, data_type, start, end, length
+                                     -> "value": the PMC value (data_type 0=char,
+                                        1=short, 2=long, 3=float, 4=double)
+            get_filenames [directory="//CNC_MEM/USER/PATH1/PART_PROGRAMS"]
+                                     -> sets directory as the current directory, then
+                                        "value": list of program names
             get_current_directory    -> "value": the directory
-            program_upload           -> "value": the program as base64
-            write_macro, write_pmc_range, set_current_directory,
-            program_download         -> {"status": "ok"}
+            program_upload program_path [buffer_size=1024]
+                                     -> "value": the program as base64
+            write_macro macro, mcr_val [dec_val=0]
+            write_pmc_range length, section, data_type, start, end, value
+            set_current_directory directory
+            program_download program_path, program_data_base64
+                                     -> {"status": "ok"}
 
-        Errors raise: 400 for missing/invalid args or an unknown command,
-        503 when the CNC does not respond, 500 for a FOCAS error code (and for
-        wait_for_cnc: alarm, e-stop or timeout).
+        Errors raise: 400 for missing args, args that are not a JSON object, an
+        unknown status field, program_data_base64 that is not valid base64, or an
+        unknown command; 503 when the CNC does not respond or the FOCAS handle is
+        lost; 500 for any other FOCAS error code, a numeric arg that is not a
+        number, and for wait_for_cnc: alarm, e-stop or timeout.
         """
         # Parse the command from the incoming request
         args = self._parse_args(command_args)
@@ -361,7 +380,7 @@ class FOCAS2(AbstractDevice):
 
     def _read_interval_data(self) -> str:
         """
-        Method to read the status of the device on an interval
+        Called on the poll interval. Does nothing and returns None (the body is empty).
         """
         pass
 
@@ -411,9 +430,6 @@ class FOCAS2(AbstractDevice):
         Method to get a list of filenames from the device via FOCAS2.
 
         :return:    list of filenames
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     KEYSTONE.4 (7.1.11.4)
         """
         self.programs = []
         self._info(message="Reading file names from Fanuc CNC memory")
@@ -435,9 +451,6 @@ class FOCAS2(AbstractDevice):
                     the name of the file to read.
 
         :return:    the file's data as base64 string.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     KEYSTONE.4 (7.1.11.4)
         """
         self._info(message="Reading file from Fanuc CNC memory: " + file_name)
         try:
@@ -459,9 +472,6 @@ class FOCAS2(AbstractDevice):
                     the name of the file to write.
         :param file_data:
                     the data of the file to write as base64 string.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         self._info(message="Writing file to Fanuc CNC memory: " + file_name)
         try:

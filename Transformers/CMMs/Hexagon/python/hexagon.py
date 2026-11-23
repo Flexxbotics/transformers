@@ -32,9 +32,9 @@ class Hexagon(AbstractDevice):
 
     def __init__(self, device: Device):
         """
-        Template device class. Inherits AbstractDevice class.
+        Hexagon CMM device class (JSON messages over TCP to the Hexagon bridge).
 
-        :param Device:
+        :param device:
                     the device object
 
         :return:    a new instance
@@ -74,16 +74,20 @@ class Hexagon(AbstractDevice):
         connect / disconnect
             Returns: {"status": "ok", "connected": true|false}
         delete_programs
+            Sends delete_programs for the loaded program; the reply is not checked.
             Returns: {"status": "ok"}
         pass
+            Sends pass for the loaded program; the reply is not checked.
             Returns: {"status": "ok", "value": "<bridge reply>"}
         clear_parameters
             Clears the trace fields sent with the next run. Returns: {"status": "ok"}
         run_program
             Runs the loaded program. Returns: {"status": "ok", "value": "routineRunning"}
 
-        Errors raise: 400 for an unknown command, 503 when the bridge does not respond,
-        500 otherwise.
+        Errors raise: 400 for bad args or an unknown command, 500 when run_program does
+        not get "routineRunning" back (including when the bridge does not respond) or
+        anything else fails. protocols.tcp.TCP does not raise network errors, so there
+        is no 503.
 
         :param command_name:
                     the command to be executed
@@ -91,9 +95,6 @@ class Hexagon(AbstractDevice):
                     json with the arguments for the command
 
         :return:    the response after execution of command.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         # Parse the command from the incoming request
         args = self._parse_args(command_args)
@@ -145,14 +146,9 @@ class Hexagon(AbstractDevice):
 
     def _read_interval_data(self) -> str:
         """
-        Method to read the status of the device on an interval
+        Not used by this transformer: does nothing.
 
-        :return:    status - string
-
-        :author:    tylerjm@flexxbotics.com
-        :author:    sanua@flexxbotics.com
-
-        :since:     ODOULS.3 (7.1.15.3)
+        :return:    None
         """
         pass
 
@@ -165,9 +161,6 @@ class Hexagon(AbstractDevice):
 
         :return:    status - "IDLE", "RUNNING", "FAULT", "" for any other bridge status,
                     or "ERROR" when the bridge cannot be read
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         status = ""
         try:
@@ -202,11 +195,8 @@ class Hexagon(AbstractDevice):
         :param function:
                     Ignored
 
-        :return:    value - string. Raises on failure (503 when the bridge does not respond,
-                    500 otherwise).
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
+        :return:    value - string. Raises 500 on failure, including when the bridge does
+                    not respond.
         """
         try:
             cmm_command = {
@@ -224,15 +214,14 @@ class Hexagon(AbstractDevice):
 
     def _run_program(self, function: str = None) -> str:
         """
-        Method to run the active program on the device
+        Method to run the active program on the device, sending the stored parameters
+        as trace fields
 
         :param function:
-                    Optional parameter to provide the name of a function to run - string
+                    Ignored
 
-        :return:    value - string
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     P.2 (7.1.16.2)
+        :return:    value - string: "routineRunning" when the bridge started the routine,
+                    otherwise "Error running program". Never raises.
         """
         self._info(message="HexagonCMM - Sending command to run program...")
         cmm_command = {
@@ -264,20 +253,18 @@ class Hexagon(AbstractDevice):
         self, parameter_name: str, parameter_value: str, function: str = None
     ) -> str:
         """
-        Method to write the specified parameter to the device
+        Method to store the specified parameter as a trace field for the next run_program
+        (nothing is sent to the device)
 
-        :param parameter:
+        :param parameter_name:
                     The parameter to write - string
 
-        :param parameter:
+        :param parameter_value:
                     The value of the parameter to write - string
 
         :param function:
-                    Optional parameter to provide the name of a function to run - string
-        :return:    value - string
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
+                    Ignored
+        :return:    value - string: "Parameter <name> wrote to value <value>"
         """
         self.parameters[parameter_name] = parameter_value
 
@@ -285,12 +272,9 @@ class Hexagon(AbstractDevice):
 
     def _read_file_names(self) -> list:
         """
-        Method to get a list of filenames from the device
+        Not implemented: does not contact the bridge.
 
-        :return:    list of filenames
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     KEYSTONE.4 (7.1.11.4)
+        :return:    an empty list
         """
 
         # Return list of available filenames from the device
@@ -300,27 +284,23 @@ class Hexagon(AbstractDevice):
 
     def _write_file(self, file_name: str, file_data: str):
         """
-        Method to write a file to a device
+        Not implemented: does nothing.
 
         :param file_name:
                     the name of the file to write.
         :param file_data:
                     the data of the file to write as base64 string.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         pass
 
     def _load_file(self, file_name: str):
         """
-        Loads a file into memory on the device
+        Sets the active program and sends a load_program request to the bridge
+        (the reply is not checked)
 
         :param file_name: the name of the file to load into memory
-        :return: the file name
-
-        :author:    zacc@flexxbotics.com
-        :since:     MODELO.3 (7.1.13.3)
+        :return: "OK", also when the bridge does not answer; "Error loading program" only when
+                 building the request or the TCP client raises. Never raises.
         """
         self.active_program = file_name
         self._info(message="HexagonCMM - Sending command to run program...")

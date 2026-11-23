@@ -86,10 +86,11 @@ class GenericMTConnect(AbstractDevice):
     Errors
     ------
     Failures raise the runtime's exceptions, which the API returns as HTTP
-    errors carrying the message: BadRequestException (400) for bad args, an
-    unknown command, or a write (MTConnect is read-only);
-    ServiceUnavailableException (503) when the agent does not respond;
-    ServerErrorException (500) for anything else.  _read_status never raises
+    errors carrying the message: BadRequestException (400) for missing or
+    non-JSON args, an unknown command, or a write (MTConnect is read-only);
+    ServiceUnavailableException (503) when the agent does not respond or
+    answers with an HTTP error; ServerErrorException (500) for anything else
+    (e.g. unparseable XML, or a non-numeric count).  _read_status never raises
     (it returns "ERROR"), and neither does _read_interval_data.
     """
 
@@ -156,32 +157,40 @@ class GenericMTConnect(AbstractDevice):
 
         probe
             Fetch the full MTConnect Device Information Model (/probe).
-            Returns the raw XML as a string in {"xml": "..."}.
+            Returns {"status": "ok", "xml": "..."}: the XML as re-serialized by
+            ElementTree (not byte-for-byte; namespaces get ns0-style prefixes).
 
         current
             Fetch the full current snapshot of all data items (/current).
-            Returns the raw XML as a string in {"xml": "..."}.
+            Returns {"status": "ok", "xml": "..."}, re-serialized as for probe.
 
         sample
             Fetch a time-series sample (/sample).
             Args: from_sequence (int, optional), count (int, optional, default 100)
-            Returns the raw XML as a string in {"xml": "..."}.
+            Returns {"status": "ok", "xml": "..."}, re-serialized as for probe.
 
         read_tag
-            Read specific data item(s) by dataItemId from /current.
+            Read specific data item(s) by dataItemId from /current (matched
+            case-insensitively; an element without a dataItemId is matched on
+            its id or name).
             Args: tag (str, required)
                   component_stream (str, optional) — scope to a ComponentStream
                                    name/component/componentId, e.g. "Controller"
-            Returns: {"tag": "...", "results": [{"text": "...", "attrib": {...}}]}
+            Returns: {"status": "ok", "tag": "...", "results": [{"matched_by":
+                      "dataItemId", "tag": "<element name>", "text": "...",
+                      "attrib": {...}, "alarms": [...]}]}
 
         read_tags
-            Read multiple tags in a single /current fetch.
-            Args: tags (comma-separated string or JSON array of dataItemIds)
+            Read multiple tags, fetching /current once per tag.
+            Args: tags (comma-separated string or JSON array of dataItemIds,
+                        required)
                   component_stream (str, optional)
-            Returns: {"values": {"<tag>": "<value>", ...}}
+            Returns: {"status": "ok", "values": {"<tag>": "<value>", ...}}
+                     (the first match's text, or "UNAVAILABLE" when none)
 
-        Errors raise: 400 for missing/invalid args or an unknown command,
-        503 when the agent does not respond, 500 otherwise.
+        Errors raise: 400 for missing or non-JSON args or an unknown command,
+        503 when the agent does not respond or answers with an HTTP error,
+        500 otherwise (e.g. unparseable XML, or a non-numeric count).
         """
         args = self._parse_args(command_args)
         self._info(message=f"Sending command: {command_name}")
@@ -257,8 +266,10 @@ class GenericMTConnect(AbstractDevice):
     def _read_interval_data(self) -> str:
         """
         Periodic poll. Reads each tag in metaData.interval_tags from /current
-        and returns their latest values.  Never raises: a tag that fails (or
-        every tag, when the agent is unreachable) reports "ERROR: ...".
+        and returns their latest values ("UNAVAILABLE" for a tag with no
+        match).  Never raises: a tag that fails (or every tag, when the agent
+        is unreachable) reports "ERROR: ...".  Falls back to _read_status when
+        no interval_tags are configured.
         """
         if not self.interval_tags:
             return json.dumps({"status": self._read_status()})
@@ -283,9 +294,11 @@ class GenericMTConnect(AbstractDevice):
 
         MTConnect Execution values → Flexx status:
           ACTIVE, FEED_HOLD, WAIT, INTERRUPTED → "RUNNING"
-          READY, STOPPED, PROGRAM_COMPLETED    → "IDLE"
-          UNAVAILABLE                          → "UNAVAILABLE"
-          anything else                        → returned as-is
+          READY, STOPPED, OPTIONAL_STOP,
+          PROGRAM_STOPPED, PROGRAM_COMPLETED   → "IDLE"
+          UNAVAILABLE, or no matching item     → "UNAVAILABLE"
+          anything else                        → returned upper-cased
+          any failure                          → "ERROR" (never raises)
         """
         try:
             self._ensure_connected()
@@ -315,8 +328,8 @@ class GenericMTConnect(AbstractDevice):
         """
         Read a single MTConnect dataItemId (e.g. "execution") from /current and
         return its text as a plain string ("UNAVAILABLE" when the agent has no
-        such item).  Raises on failure (503 when the agent does not respond,
-        500 otherwise).
+        such item).  Raises on failure (503 when the agent does not respond
+        or answers with an HTTP error, 500 otherwise).
         """
         try:
             self._ensure_connected()

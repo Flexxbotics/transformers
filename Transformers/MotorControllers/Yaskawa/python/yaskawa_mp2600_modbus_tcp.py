@@ -31,9 +31,11 @@ class YaskawaMP2600ModbusTCP(AbstractDevice):
 
     def __init__(self, device: Device):
         """
-        Template device class. Inherits AbstractDevice class.
+        Yaskawa MP2600 motion controller device class (Modbus TCP).  Reads metaData
+        "ip_address" (required; ValueError when missing) and "port" (default 502).
+        Does not connect.
 
-        :param Device:
+        :param device:
                     the device object
 
         :return:    a new instance
@@ -72,17 +74,19 @@ class YaskawaMP2600ModbusTCP(AbstractDevice):
         Executes the command sent to the device.
 
         connect / disconnect
-            Create / drop the Modbus client; connect also checks that the drive answers
-            (reads the status inputs). Returns {"status": "ok", "connected": true|false}.
+            Create / drop the Modbus client; connect does no network I/O (the wrapper
+            connects per call). Returns {"status": "ok", "connected": true|false}.
         set_carousel_index
-            Args: index (int, required). Writes the carousel index register and reads it back.
+            Args: index (int, required). Writes holding register 0 (carousel index) and reads it back.
             Returns {"status": "ok", "value": "<register value read back>"}.
         set_manual_control
-            Args: value (bool, required). Writes the manual-control coil and reads it back.
+            Args: value (bool, required; true for true/"true"/"1"/"yes"/"on", false otherwise).
+            Writes coil 0 (manual control) and reads it back.
             Returns {"status": "ok", "value": "manual_control state:<True|False>"}.
 
-        Errors raise: 400 for an unknown command or bad args, 503 when the drive does not
-        respond, 500 otherwise.
+        Errors raise: 400 for an unknown command or missing, non-JSON or non-integer args,
+        503 for a raw socket error, 500 otherwise (pymodbus reports an unreachable drive or a
+        timeout as a ModbusException, so those give 500).
 
         :param command_name:
                     the command to be executed
@@ -90,9 +94,6 @@ class YaskawaMP2600ModbusTCP(AbstractDevice):
                     json with the arguments for the command
 
         :return:    the response after execution of command.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         # Parse the command from the incoming request
         args = self._parse_args(command_args)
@@ -133,11 +134,6 @@ class YaskawaMP2600ModbusTCP(AbstractDevice):
         Method to read the status of the device on an interval
 
         :return:    status - string
-
-        :author:    tylerjm@flexxbotics.com
-        :author:    sanua@flexxbotics.com
-
-        :since:     ODOULS.3 (7.1.15.3)
         """
         try:
             status = self.read_status()
@@ -152,12 +148,11 @@ class YaskawaMP2600ModbusTCP(AbstractDevice):
         Method to read the status of the device
 
         :param function:
-                    Optional parameter to provide the name of a function to run - string
+                    Ignored
 
-        :return:    status - string
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
+        :return:    status - string: "IDLE" when discrete inputs 1 (moving) and 0 (enabled) are
+                    both on, "RUNNING" when both are off, "ERROR" when only one is on or the
+                    read fails (never raises)
         """
         try:
             self._ensure_connected()
@@ -189,12 +184,9 @@ class YaskawaMP2600ModbusTCP(AbstractDevice):
 
     def _read_file_names(self) -> list:
         """
-        Method to get a list of filenames from the device
+        Not supported: always returns an empty list (nothing is read from the controller).
 
-        :return:    list of filenames
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     KEYSTONE.4 (7.1.11.4)
+        :return:    []
         """
 
         # Return list of available filenames from the device
@@ -204,27 +196,21 @@ class YaskawaMP2600ModbusTCP(AbstractDevice):
 
     def _write_file(self, file_name : str, file_data : str):
         """
-        Method to write a file to a device
+        Not supported: does nothing.
 
         :param file_name:
                     the name of the file to write.
         :param file_data:
                     the data of the file to write as base64 string.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         pass
 
     def _load_file(self, file_name : str):
         """
-        Loads a file into memory on the device
+        Not supported: does nothing.
 
         :param file_name: the name of the file to load into memory
-        :return: the file name
-
-        :author:    zacc@flexxbotics.com
-        :since:     MODELO.3 (7.1.13.3)
+        :return: None
         """
         pass
 

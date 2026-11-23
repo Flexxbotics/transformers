@@ -42,11 +42,6 @@ from exceptions.flexxCoreExceptions import (
 class Fanuc(AbstractDevice):
     """
     The device transformer for the FANUC Robot.
-
-    :author:    cadenc@flexxbotics.com
-    :author:    tylerjm@flexxbotics.com
-
-    :since:     NOLA.1 (7.1.14.1)
     """
 
     # ############################################################################## #
@@ -56,7 +51,7 @@ class Fanuc(AbstractDevice):
     def __init__(self, device: Device):
         """
         FANUC Robot device class.
-        :param Device:
+        :param device:
                     the device object
 
         :return:    a new instance
@@ -135,8 +130,8 @@ class Fanuc(AbstractDevice):
         Executes the command sent to the device.
 
         connect / disconnect
-            Open / close the HTTP session; connect also checks that the robot answers
-            (GET FLEXX_GET_STATE). Returns {"status": "ok", "connected": true|false}.
+            Create / close the HTTP session; no request is sent to the robot.
+            Returns {"status": "ok", "connected": true|false}.
         <any other name>
             Runs the Karel program /KARELCMD/<NAME>?<ARG>=<VALUE>&... on the robot. The name,
             arg names and values are upper-cased. The name must be a Karel identifier
@@ -154,9 +149,6 @@ class Fanuc(AbstractDevice):
                     ignored; kept so existing direct callers don't break
 
         :return:    the response after execution of command.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         args = self._parse_args(command_args)
         self._info(message="Sending command: " + command_name)
@@ -197,14 +189,9 @@ class Fanuc(AbstractDevice):
 
     def _read_interval_data(self) -> str:
         """
-        Method to read the status of the device on an interval
+        Not used by this transformer: does nothing.
 
-        :return:    status - string
-
-        :author:    tylerjm@flexxbotics.com
-        :author:    sanua@flexxbotics.com
-
-        :since:     ODOULS.3 (7.1.15.3)
+        :return:    None
         """
         pass
 
@@ -213,12 +200,9 @@ class Fanuc(AbstractDevice):
         Method to read the status of the robot
 
         :param function:
-                    Optional parameter to provide the name of a function to run - string
+                    Ignored
 
         :return:    status - string
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         try:
             # Robot status
@@ -243,9 +227,6 @@ class Fanuc(AbstractDevice):
 
         :return:    value - string: the reply's "value" field when it has one, else the reply as JSON.
                     Raises on failure.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         try:
             value = self._read_variable_from_robot(variable_name=variable_name)
@@ -258,19 +239,16 @@ class Fanuc(AbstractDevice):
         """
         Method to write the specified parameter to the robot
 
-        :param parameter:
+        :param parameter_name:
                     The parameter to write - string
 
-        :param parameter:
+        :param parameter_value:
                     The value of the parameter to write - string
 
         :param function:
-                    Optional parameter to provide the name of a function to run - string
+                    Ignored
 
         :return:    value - string: the written value. Raises on failure.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         try:
             self._set_parameter_on_robot(parameter_name=parameter_name, parameter_value=parameter_value)
@@ -283,17 +261,14 @@ class Fanuc(AbstractDevice):
         """
         Method to read the specified parameter from the robot (Karel FLEXX_GET_PARAMETER)
 
-        :param parameter:
-                    The parameter to write - string
+        :param parameter_name:
+                    The parameter to read - string
 
         :param function:
                     Ignored
 
         :return:    value - string: the reply's "value" field when it has one, else the reply as JSON.
                     Raises on failure.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         try:
             value = self._read_parameter_from_robot(parameter_name=parameter_name)
@@ -307,9 +282,6 @@ class Fanuc(AbstractDevice):
         Method to get a list of filenames from the device
 
         :return:    list of filenames
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     NOLA.3 (7.1.14.3)
         """
 
         # Return list of available filenames from the device
@@ -336,9 +308,6 @@ class Fanuc(AbstractDevice):
                     the name of the file to read.
 
         :return:    the file's data as base64 string.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     NOLA.1 (7.1.14.1)
         """
         # Reads the file content off the device
         try:
@@ -356,9 +325,6 @@ class Fanuc(AbstractDevice):
                     the name of the file to write.
         :param file_data:
                     the data of the file to write as base64 string
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     NOLA.1 (7.1.14.1)
         """
         try:
             self._transfer_file_to_device(file_name=file_name, file_data=file_data)
@@ -367,13 +333,10 @@ class Fanuc(AbstractDevice):
 
     def _load_file(self, file_name: str):
         """
-        Loads a file into memory on the device
+        Not implemented: does nothing.
 
-        :param file_name: the name of the file to load into memory
-        :return: the file name
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     NOLA.1 (7.1.14.1)
+        :param file_name: the name of the file to load into memory (ignored)
+        :return: None
         """
         # TODO Implement way to load program into memory
 
@@ -404,13 +367,9 @@ class Fanuc(AbstractDevice):
         """
         Method to send a message to the Flexxbotics Karel Server on the FANUC Robot
 
-        :param: message
+        :param req: the requests.Request to send; the reply is kept in self.response
 
         :return:    True; raises ServiceUnavailableException when the robot does not respond
-
-        :author:    tylerjm@flexxbotics.com
-        :author:    cadenc@flexxbotics.com
-        :since:     NOLA.1 (7.1.14.1)
         """
         self._ensure_connected()
         try:
@@ -439,15 +398,12 @@ class Fanuc(AbstractDevice):
 
     def _convert_hms_string_to_microseconds(self, hms_time_string):
         """
-        Method to convert the UR's cycle time from hh:mm:ss.ssssss to microseconds for timedelta
+        Method to convert a cycle time from hh:mm:ss.ssssss to microseconds for timedelta
 
         :param hms_time_string:
                     the time as a string: to convert.
 
         :return:    the converted time in microseconds
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     NOLA.1 (7.1.14.1)
         """
         # Convert the cycle time from hh:mm:ss.mmmm to milliseconds
         hours, minutes, seconds = hms_time_string.split(":")
@@ -469,11 +425,9 @@ class Fanuc(AbstractDevice):
         """
         Method to get state data from the FANUC robot
 
-        :return:    json string with the state
-
-        :author:    tylerjm@flexxbotics.com
-        :author:    cadenc@flexxbotics.com
-        :since:     NOLA.1 (7.1.14.1)
+        :return:    the state as a dict (the parsed FLEXX_GET_STATE reply); {"status": "ROBOT_DISCONNECTED"}
+                    when the connection is refused or there is no route to the robot, {} on any other
+                    failure. Never raises.
         """
         try:
             # TODO implement comes to get the state
@@ -503,12 +457,10 @@ class Fanuc(AbstractDevice):
 
     def _set_parameter_on_robot(self, parameter_name, parameter_value):
         """
-        Method to set parameters on the FANUC robot
-        :param: parameter - dict
-        :return:    string
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
+        Method to set one parameter on the FANUC robot (Karel FLEXX_SET_PARAMETERS)
+        :param parameter_name: the parameter name - string
+        :param parameter_value: the value to set - string
+        :return:    None; raises ServiceUnavailableException when the robot does not respond
         """
         URL = self.root_url + "/KARELCMD/FLEXX_SET_PARAMETERS?" + parameter_name + "=" + parameter_value
         self._info(message="Request: " + URL)
@@ -522,12 +474,8 @@ class Fanuc(AbstractDevice):
     def _set_parameters_on_robot(self, parameters):
         """
         Method to set parameters on the FANUC robot
-        :param: parameters
-        :return:    string
-
-        :author:    tylerjm@flexxbotics.com
-        :author:    cadenc@flexxbotics.com
-        :since:     NOLA.2 (7.1.14.2)
+        :param: parameters - list of {"name": ..., "value": ...} dicts
+        :return:    None; raises ServiceUnavailableException when the robot does not respond
         """
 
         URL = self.root_url + "/KARELCMD/FLEXX_SET_PARAMETERS?"
@@ -557,11 +505,7 @@ class Fanuc(AbstractDevice):
         Method to read a parameter from the FANUC robot
 
         :param: parameter_name
-        :return:    json string with the variable
-
-        :author:    tylerjm@flexxbotics.com
-        :author:    cadenc@flexxbotics.com
-        :since:     NOLA.2 (7.1.14.2)
+        :return:    the robot's reply, parsed from JSON
         """
         URL = (
                 self.root_url
@@ -585,11 +529,7 @@ class Fanuc(AbstractDevice):
         Method to read a variable from the FANUC robot
 
         :param: variable_name
-        :return:    json string with the variable
-
-        :author:    tylerjm@flexxbotics.com
-        :author:    cadenc@flexxbotics.com
-        :since:     NOLA.2 (7.1.14.2)
+        :return:    the robot's reply, parsed from JSON
         """
 
         URL = (
@@ -620,9 +560,6 @@ class Fanuc(AbstractDevice):
             the file data
 
         :return:    the file data
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     NOLA.1 (7.1.14.1)
         """
         self._info("transferring program file")
         try:
@@ -658,15 +595,13 @@ class Fanuc(AbstractDevice):
 
     def _transfer_file_from_device(self, file_name):
         """
-        Method to copy a program file off the device and save it to a local backup location.
+        Method to copy a program file off the device (via lftp into temp_program_files, then
+        read and delete the local copy).
 
         :param file_name:
                     the name of the file to transfer
 
-        :return:    the data associated with the named file.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     NOLA.1 (7.1.14.1)
+        :return:    the file's contents as bytes.
         """
         self._info("backing up program file")
         try:

@@ -44,15 +44,23 @@ class HolzmanBeckhoff(AbstractDevice):
 
     def __init__(self, device: Device):
         """
-        Beckhoff ADS/TwinCAT device class.
+        Holzman saw device class: talks to the saw's Beckhoff TwinCAT PLC over ADS
+        (a copy of the BeckhoffTwinCAT driver, not a subclass, plus Holzman status,
+        program and part-count logic).
 
         Expects device.metaData to contain (at minimum):
           - ams_net_id: "x.x.x.x.x.x" (TwinCAT AMS Net ID of the target)
           - ip_address: "a.b.c.d" (optional for pyads, but typically provided)
-          - port / ams_port: int (TwinCAT 2 often 801; TwinCAT 3 often 851)
+          - ams_port: int (default 801; TwinCAT 2 often 801, TwinCAT 3 often 851)
+          - local_ams_net_id: "x.x.x.x.x.x" (AMS Net ID of this host; _connect
+            passes it to pyads.set_local_address unconditionally, so connecting
+            fails without it)
           - timeout: float seconds (optional)
           - retry: int (optional)
           - retry_interval: float seconds (optional)
+
+        Raises RuntimeError (wrapping the cause) when ams_net_id is missing or a
+        value cannot be parsed.
         """
         try:
             super().__init__(device)
@@ -102,28 +110,33 @@ class HolzmanBeckhoff(AbstractDevice):
         """
         Executes the command sent to the device.
 
-        Commands:
-          - connect
-          - disconnect
+        Commands (each returns a JSON string):
+          - connect       -> {"status": "ok", "connected": true}
+          - disconnect    -> {"status": "ok", "connected": false}
           - read   (reads an ADS symbol)
-          - list_symbols  (enumerates the PLC symbols on the target)
+                          -> {"status": "ok", "symbol": ..., "plc_type": ..., "value": ...}
+          - list_symbols  (enumerates the PLC symbols on the target, over a
+                          separate raw pyads connection)
+                          -> {"status": "ok", "count": n, "symbols": [...]}
 
         Args are a JSON object, or the same object wrapped as {"value": "<json>"}.
 
         read command args:
           {
-            "symbol": "AchsStatus.Status",
-            "plc_type": "INT"
+            "symbol": "AchsStatus.Status",   # required
+            "plc_type": "INT"                # optional, default "INT"
           }
 
         list_symbols command args:
           {
             "prefix": ".",   # optional
-            "limit": 200      # optional
+            "limit": 200      # optional, default 200
           }
 
-        Errors raise: 400 for missing/invalid args or an unknown command,
-        503 when the device does not respond, 500 otherwise.
+        Errors raise: 400 for invalid JSON args, a missing symbol, an
+        unsupported plc_type or an unknown command; 503 when the ADS client
+        fails to open; 500 otherwise, including ADS errors from a PLC that
+        does not answer (pyads raises ADSError, which is not a network error).
         """
         args = self._parse_args(command_args)
         self._info(message=f"Sending command: {command_name}")
@@ -166,7 +179,10 @@ class HolzmanBeckhoff(AbstractDevice):
 
     def _read_interval_data(self) -> str:
         """
-        Method to read the status of the device on an interval.  Never raises.
+        Called on every poll: opens the ADS connection if needed, logs the key
+        PLC symbols (_log_key_plc_values) and updates the active program and
+        part count (_check_program_and_part_count).  Returns None.  Errors are
+        logged; never raises.
         """
         try:
             self._ensure_connected()
@@ -180,8 +196,14 @@ class HolzmanBeckhoff(AbstractDevice):
         Detects the active program number and part count events.
 
         Active program  : .PNRNM (DINT) — the numeric program ID loaded on the saw.
+                          0 or a failed read is recorded as "NOT_REPORTED".  It is
+                          written as partNumber to get_run_records()[0] on every
+                          call; partCount is reset to 0 when it changes.
         Part count      : falling edge of .PROGRAMMLAEUFT (True → False) signals
-                          that a program cycle completed and a part was produced.
+                          that a program cycle completed and a part was produced;
+                          a PartCountEvent is created for this device.
+
+        Does nothing when there is no ADS client.  Errors are logged, never raised.
         """
         if self.client is None:
             return
@@ -237,7 +259,9 @@ class HolzmanBeckhoff(AbstractDevice):
         "IDLE".  Returns "MACHINE_NOT_CONNECTED_OR_POWERED_OFF" when the ADS
         connection cannot be opened, and "ERROR" when the PLC does not answer
         (every symbol read in the call failed) or the read fails unexpectedly.
-        A single symbol that cannot be read is skipped.  Never raises.
+        A single symbol that cannot be read is skipped.  When `function` is
+        given, returns "" (nothing to report) once connected, without reading
+        any symbol.  Never raises.
         """
         try:
             self._ensure_connected()
@@ -379,8 +403,9 @@ class HolzmanBeckhoff(AbstractDevice):
         Read a PLC symbol by name and return its value as a plain string.
         variable_name is the TwinCAT symbol path, e.g. ".PNRNM" or
         "AchsStatus.Status"; its declared type is read from the PLC.
-        `function` is ignored.  Raises on failure (503 when the device does
-        not respond, 500 otherwise).
+        A None value is returned as "".  `function` is ignored.  Raises on
+        failure: 503 when the ADS client fails to open, 500 otherwise
+        (including ADS errors from a PLC that does not answer).
         """
         try:
             self._ensure_connected()
@@ -596,8 +621,9 @@ class HolzmanBeckhoff(AbstractDevice):
         
         Accepts:
           - None
-              - integer (already a PLCTYPE value)
-      - string like "INT", "BOOL", etc.
+          - integer (returned unchanged, assumed to be a PLCTYPE value)
+          - string like "INT", "BOOL", etc.
+        Returns None for None, an unknown name, or any other type.
         """
         if plc_type is None:
             return None

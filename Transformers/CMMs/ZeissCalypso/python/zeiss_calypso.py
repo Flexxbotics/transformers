@@ -35,7 +35,7 @@ class ZeissCalypso(AbstractDevice):
 
     Rather than talking to the CMM directly, this transformer talks to the
     standalone Calypso report server (see
-    FlexxConnectServer/.../adapters/zeiss_calypso_report_server) running on the
+    ../extensions/calypso_report_server.py) running on the
     CMM's Windows PC. That server scans a directory of CALYPSO report PDFs and
     exposes them over JSON-RPC 2.0. This transformer forwards commands to it via
     the HttpRest protocol and returns the structured inspection data.
@@ -43,7 +43,7 @@ class ZeissCalypso(AbstractDevice):
 
     def __init__(self, device: Device):
         """
-        :param Device:
+        :param device:
                     the device object
 
         :return:    a new instance
@@ -88,10 +88,28 @@ class ZeissCalypso(AbstractDevice):
         Executes the command sent to the device.
 
         Each supported command maps to one JSON-RPC method on the Calypso report
-        server. The arguments object is forwarded as the RPC params, so callers
-        can pass the same time filters the server understands
-        (``since``, ``until``, ``modified_within_hours``, ``pattern``,
-        ``recursive``, ``directory``, ``include_characteristics``, ``file``).
+        server. Except for ping, the arguments object is forwarded as the RPC
+        params; the server ignores keys it does not know.
+
+        connect / disconnect
+            connect pings the report server (unless already connected);
+            disconnect closes the HttpRest session.
+        ping
+            No args. Result: the server's config ({"ok": true, "directory",
+            "last_pulled", "server_time", ...}).
+        list_reports
+            Optional args: ``since``, ``until``, ``modified_within_hours``,
+            ``pattern``, ``recursive``, ``directory`` (defaults from the server's
+            config). Result: {"directory", "count", "files": [...]} (no PDF parsing).
+        get_reports
+            Optional args: as list_reports, plus ``include_characteristics``
+            (default true). With no ``since`` the server uses its stored
+            ``last_pulled`` watermark; a pull without ``until`` advances it.
+            Result: {"directory", "count", "pulled_since", "last_pulled",
+            "reports": {<report_id>: {...}}, "errors": [...]}.
+        get_report
+            Args: ``file`` (required; a name in the directory or an absolute
+            path), ``directory`` (optional). Result: the parsed report.
 
         :param command_name:
                     the command to be executed:
@@ -105,11 +123,10 @@ class ZeissCalypso(AbstractDevice):
                     connect / disconnect return
                     {"status": "ok", "connected": true|false}.
 
-        Errors raise: 400 for bad args or an unknown command, 503 when the
-        report server does not respond, 500 with the server's message when it
-        replies with an RPC error.
-
-        :author:    tylerjm@flexxbotics.com
+        Errors raise: 400 for args that are not a JSON object or an unknown
+        command, 503 when the report server does not respond, 500 with the
+        server's message when it replies with an RPC error (this includes a
+        missing ``file`` for get_report).
         """
         args = self._parse_args(command_args)
         self._info(message="Sending command: " + command_name)
@@ -212,8 +229,6 @@ class ZeissCalypso(AbstractDevice):
 
         Raises ServerErrorException carrying the server's message for an RPC
         error, and ConnectionError when no reply arrives (mapped to 503).
-
-        :author:    tylerjm@flexxbotics.com
         """
         self._rpc_id += 1
         envelope = {

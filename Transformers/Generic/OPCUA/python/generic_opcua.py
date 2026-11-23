@@ -86,9 +86,10 @@ class GenericOPCUA(AbstractDevice):
     Errors
     ------
     Failures raise the runtime's exceptions, which the API returns as HTTP
-    errors carrying the message: BadRequestException (400) for bad args or an
-    unknown command, ServiceUnavailableException (503) when the server does not
-    respond, ServerErrorException (500) for anything else (e.g. a bad NodeId).
+    errors carrying the message: BadRequestException (400) for missing or
+    non-JSON args or an unknown command, ServiceUnavailableException (503)
+    when the server does not respond, ServerErrorException (500) for anything
+    else (e.g. a bad NodeId, or a non-numeric value for a numeric arg).
     _read_status never raises (it returns "ERROR"), and neither does
     _read_interval_data.
     """
@@ -158,49 +159,61 @@ class GenericOPCUA(AbstractDevice):
         ------------------
         connect
             Open OPC-UA session to the server.
+            Returns: {"status": "ok", "connected": true, "endpoint": "..."}
 
         disconnect
             Close OPC-UA session.
+            Returns: {"status": "ok", "connected": false}
 
         read
             Read a single node value.
-            Args: node_id (str), variant_type (str, optional)
-            Returns: {"node_id": "...", "value": <value>}
+            Args: node_id (str, required)
+            Returns: {"status": "ok", "node_id": "...", "value": <value>}
 
         write
             Write a value to a single node.
-            Args: node_id (str), value (<any>), variant_type (str, optional)
+            Args: node_id (str, required), value (<any>), variant_type (str, optional)
                   variant_type values: Boolean, Int16, Int32, Int64, UInt16,
-                                       UInt32, UInt64, Float, Double, String
+                                       UInt32, UInt64, Float, Double, String,
+                                       DateTime, Byte, SByte (any other name
+                                       writes untyped)
             Returns: {"node_id": "...", "value": <value>, "status": "ok"}
 
         read_nodes
             Batch read multiple nodes in a single request.
-            Args: node_ids (comma-separated string or JSON array)
-            Returns: {"values": {"<node_id>": <value>, ...}}
+            Args: node_ids (comma-separated string or JSON array, required)
+            Returns: {"status": "ok", "values": {"<node_id>": <value>, ...}}
+                     A node that fails to read has the value "ERROR: ...".
 
         browse
             Browse children of a node.
             Args: node_id (str, default "i=85" = Objects folder)
-            Returns: {"nodes": [{"node_id": "...", "browse_name": "...", ...}]}
+            Returns: {"status": "ok", "node_id": "...", "nodes": [{"node_id": "...",
+                      "browse_name": "...", "display_name": "..."}, ...]}
 
         subscribe
-            Subscribe to data-change notifications for one or more nodes.
-            Args: node_ids (comma-separated or JSON array),
+            Subscribe to data-change notifications for one or more nodes,
+            replacing any previous subscription.  The subscription is lost if
+            the connection drops; call subscribe again after a reconnect.
+            Args: node_ids (comma-separated or JSON array, required),
                   publishing_interval_ms (int, default 250)
-            Returns: {"status": "ok", "subscribed": <count>}
+            Returns: {"status": "ok", "subscribed": <count>,
+                      "publishing_interval_ms": n}
 
         receive_notifications
             Drain buffered subscription notifications (non-blocking).
             Args: buffer_size (int, default 10)
-            Returns: [{"node_id": "...", "value": ..., "source_timestamp": ...}, ...]
+            Returns: {"status": "ok", "notifications": [{"node_id": "...",
+                      "value": ..., "source_timestamp": ...,
+                      "server_timestamp": ...}, ...]}
 
         health_check
             Probe the server's CurrentTime node to verify liveness.
-            Returns: {"alive": true/false}
+            Returns: {"status": "ok", "alive": true/false}
 
-        Errors raise: 400 for missing/invalid args or an unknown command,
-        503 when the server does not respond, 500 otherwise.
+        Errors raise: 400 for missing or non-JSON args or an unknown command,
+        503 when the server does not respond, 500 otherwise (including a
+        non-numeric value for a numeric arg).
         """
         args = self._parse_args(command_args)
         self._info(message=f"Sending command: {command_name}")
@@ -289,6 +302,7 @@ class GenericOPCUA(AbstractDevice):
         Periodic poll. Reads each node in metaData.interval_node_ids and
         returns their values as a JSON map.  Never raises: a node that fails
         (or every node, when the server is unreachable) reports "ERROR: ...".
+        Falls back to _read_status when no interval_node_ids are configured.
         """
         if not self.interval_node_ids:
             return json.dumps({"status": self._read_status()})
@@ -311,15 +325,19 @@ class GenericOPCUA(AbstractDevice):
         Read the OPC-UA server state.
 
         If metaData.status_node_id is set to a custom node, reads that and
-        returns its string value directly.
+        returns its string value directly ("UNKNOWN" when it holds no value).
 
         If using the default standard ServerState node (i=2259):
-          0=Running  → "RUNNING"
-          1=Failed   → "FAILED"
-          2=NoConfig → "NO_CONFIG"
-          3=Suspended→ "SUSPENDED"
-          4=Shutdown → "SHUTDOWN"
-          other      → "UNKNOWN"
+          0=Running            → "RUNNING"
+          1=Failed             → "FAILED"
+          2=NoConfig           → "NOCONFIG"
+          3=Suspended          → "SUSPENDED"
+          4=Shutdown           → "SHUTDOWN"
+          5=Test               → "TEST"
+          6=CommunicationFault → "COMMUNICATIONFAULT"
+          other (or no value)  → "UNKNOWN"
+
+        Any failure returns "ERROR" (never raises).
         """
         try:
             self._ensure_connected()

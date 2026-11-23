@@ -51,7 +51,7 @@ class SiemensS7(AbstractDevice):
       rack         : physical rack number (default 0)
       slot         : CPU slot number (default 1; use 2 for S7-300, 3 for S7-400)
       tcp_port     : ISO-on-TCP port (default 102)
-      timeout      : socket timeout in seconds (default 2.0)
+      timeout      : passed to the S7 client (default 2.0; the protocol stores it but does not apply it)
       retry        : connection retry attempts (default 2)
       status_db    : DB number to probe for _read_status (default 1)
       status_start : byte offset within status_db (default 0)
@@ -67,8 +67,9 @@ class SiemensS7(AbstractDevice):
     * **Rack/Slot routing**: S7-300 CPUs sit at slot 2; S7-400 at slot 3;
       S7-1200/1500/ET200SP at slot 1.  Incorrect slot = connection failure.
     * **Data type encoding**: Raw bytes are read from DBs and decoded using
-      snap7.util helpers.  The helper commands (read_bool, read_int, read_real,
-      etc.) handle this transparently.
+      snap7.util helpers (big-endian struct when the snap7 imports fail).  The
+      helper commands (read_bool, read_int, read_real, etc.) handle this
+      transparently.
     * **CPU state**: Siemens exposes a run/stop state via snap7's
       get_cpu_state() call.  This transformer probes a configurable status DB
       as a connectivity check; a snap7-level CPU state call would require
@@ -81,10 +82,12 @@ class SiemensS7(AbstractDevice):
     Errors
     ------
     Failures raise the runtime's exceptions, which the API returns as HTTP
-    errors carrying the message: BadRequestException (400) for bad args, an
-    unrecognised address or an unknown command, ServiceUnavailableException
-    (503) when the PLC does not respond, ServerErrorException (500) for
-    anything else.  _read_status never raises (it returns "ERROR"), and
+    errors carrying the message: BadRequestException (400) for missing or
+    non-JSON args, an unrecognised address or an unknown command,
+    ServiceUnavailableException (503) when the connection cannot be opened,
+    ServerErrorException (500) for anything else (including args that do not
+    convert, and S7 errors on an open connection, which python-snap7 raises
+    as RuntimeError).  _read_status never raises (it returns "ERROR"), and
     neither does _read_interval_data.
     """
 
@@ -145,52 +148,58 @@ class SiemensS7(AbstractDevice):
         read_db
             Read raw bytes from a Data Block.
             Args: db_number (int), start (int), size (int)
-            Returns: {"db_number":1, "start":0, "size":4, "data_hex":"...", "data_b64":"..."}
+            Returns: {"status": "ok", "db_number":1, "start":0, "size":4, "data_hex":"...", "data_b64":"..."}
 
         write_db
             Write raw bytes to a Data Block.
             Args: db_number (int), start (int),
                   data (list[int] 0-255  OR  hex string e.g. "FF01A0")
+            Returns: {"status": "ok", "db_number": 1, "start": 0, "size": <bytes written>}
 
         read_bool
             Read a single BOOL from a DB.
             Args: db_number (int), byte_offset (int), bit_offset (int 0-7)
-            Returns: {"value": true/false}
+            Returns: {"status": "ok", "value": true/false}
 
         write_bool
-            Write a single BOOL to a DB.
+            Write a single BOOL to a DB (reads the byte, sets the bit, writes the byte back).
             Args: db_number (int), byte_offset (int), bit_offset (int 0-7),
-                  value (bool)
+                  value (bool; true for true/"true"/"1"/"yes"/"on", false otherwise)
+            Returns: {"status": "ok", "value": true/false}
 
         read_int
             Read a signed 16-bit INT from a DB (2 bytes).
             Args: db_number (int), start (int)
-            Returns: {"value": <int>}
+            Returns: {"status": "ok", "value": <int>}
 
         write_int
             Write a signed 16-bit INT to a DB.
             Args: db_number (int), start (int), value (int)
+            Returns: {"status": "ok", "value": <int>}
 
         read_real
             Read a 32-bit IEEE-754 REAL (float) from a DB (4 bytes).
             Args: db_number (int), start (int)
-            Returns: {"value": <float>}
+            Returns: {"status": "ok", "value": <float>}
 
         write_real
             Write a 32-bit REAL to a DB.
             Args: db_number (int), start (int), value (float)
+            Returns: {"status": "ok", "value": <float>}
 
         read_dword
             Read an unsigned 32-bit DWORD from a DB (4 bytes).
             Args: db_number (int), start (int)
-            Returns: {"value": <int>}
+            Returns: {"status": "ok", "value": <int>}
 
         write_dword
             Write an unsigned 32-bit DWORD to a DB.
             Args: db_number (int), start (int), value (int)
+            Returns: {"status": "ok", "value": <int>}
 
-        Errors raise: 400 for missing/invalid args or an unknown command,
-        503 when the PLC does not respond, 500 otherwise.
+        All args are required.  Errors raise: 400 for missing or non-JSON args
+        or an unknown command, 503 when the connection cannot be opened, 500
+        otherwise (including args that do not convert and S7 errors).
         """
         args = self._parse_args(command_args)
         self._info(message=f"Sending command: {command_name}")
@@ -316,7 +325,8 @@ class SiemensS7(AbstractDevice):
         """
         Probe the PLC by reading 1 byte from metaData.status_db.
 
-        Returns "RUNNING" on success, "STOPPED" or "ERROR" on failure.
+        Returns "RUNNING" on success, "ERROR" on failure (and marks the
+        transformer disconnected so the next call reconnects).
 
         Note: A true run/stop distinction requires python-snap7's
         get_cpu_state() call, which is not exposed by the current protocol
@@ -342,8 +352,9 @@ class SiemensS7(AbstractDevice):
           "DB1.DBD4"     → DWORD at DB1, byte 4  (32-bit unsigned)
           "DB1.DBR4"     → REAL  at DB1, byte 4  (32-bit float)
 
-        Returns the value as a plain string.  Raises on failure (400 for an
-        unrecognised address, 503 when the PLC does not respond, 500 otherwise).
+        Returns the value as a plain string (a BOOL as "0" or "1").  Raises on
+        failure (400 for an unrecognised address, 503 when the connection
+        cannot be opened, 500 otherwise).
         """
         try:
             parsed = self._parse_address(variable_name)
@@ -370,7 +381,7 @@ class SiemensS7(AbstractDevice):
         """
         Write a typed value to a DB using the same dot-notation as _read_variable.
         Returns the written value.  Raises on failure (400 for an unrecognised
-        address, 503 when the PLC does not respond, 500 otherwise).
+        address, 503 when the connection cannot be opened, 500 otherwise).
         """
         try:
             parsed = self._parse_address(variable_name)

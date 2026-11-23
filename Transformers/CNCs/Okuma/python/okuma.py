@@ -44,9 +44,10 @@ class Okuma(AbstractDevice):
     Errors
     ------
     Failures raise the runtime's exceptions, which the API returns as HTTP errors carrying the
-    message: BadRequestException (400) for bad args or an unknown command,
-    ServiceUnavailableException (503) when the device does not respond, ServerErrorException (500)
-    for anything else.  _read_status never raises (it returns "ERROR").
+    message: BadRequestException (400) for missing args, args that are not a JSON object or an
+    unknown command, ServerErrorException (500) for anything else. A device that does not respond
+    is not an error: TCP.send returns "" and that is passed back as the reply.  _read_status never
+    raises (it returns "ERROR" on an exception).
     """
 
     # v2 command -> (THINC command, required arg keys). The line sent is the THINC command followed
@@ -81,9 +82,10 @@ class Okuma(AbstractDevice):
 
     def __init__(self, device: Device):
         """
-        Template device class. Inherits AbstractDevice class.
+        Okuma OSP transformer (THINC server over TCP). Does not connect. Raises ValueError when
+        metaData has no 'ip_address' or 'port'.
 
-        :param Device:
+        :param device:
                     the device object
 
         :return:    a new instance
@@ -123,17 +125,36 @@ class Okuma(AbstractDevice):
 
         get_all_tool_life
             Reads the remaining tool life of tools 1..num_tools and sends each one as the
-            variable event "tool_<n>_life".
+            variable event "tool_<n>_life". A tool whose read or event fails is logged and skipped.
             Args: num_tools (int, required)
             Returns: {"status": "ok", "command": "get_all_tool_life", "response": "OK"}
 
         Every command in _THINC_COMMANDS
-            Sends the THINC command with its args. All listed args are required; numbers are
-            accepted as well as strings.
+            Sends the THINC command (the command name in upper case, with read_ sent as GET_)
+            followed by its args in the order below, joined by ":". All listed args are
+            required; numbers are accepted as well as strings.
+                read_machine_offset                         offset_axis
+                add_machine_offset, set_machine_offset      offset_axis, offset_value
+                read_tool_offset                            tool_num, tool_comp
+                add_tool_offset, set_tool_offset, set_cutter_comp_offset,
+                add_cutter_comp_offset, set_cutter_comp_wear_offset,
+                add_cutter_comp_wear_offset, set_cutter_offset, add_cutter_offset,
+                set_cutter_wear_offset, add_cutter_wear_offset
+                                                            tool_num, tool_comp, offset_value
+                read_workpiece_offset                       offset_axis, axis_index
+                add_workpiece_offset, set_workpiece_offset  offset_axis, axis_index, offset_value
+                set_program (sets the program, does not load it)
+                                                            name
+                get_remaining_tool_life, get_tool_life      tool
+                get_axis_load                               axis_index
+                get_current_tool, get_active_tool, get_spindle_load
+                                                            (no args)
             Returns: {"status": "ok", "command": "<command_name>", "response": "<THINC reply>"}
+            (the reply is "" when the device does not respond)
 
-        Errors raise: 400 for missing/invalid args or an unknown command,
-        503 when the device does not respond, 500 otherwise.
+        Errors raise: 400 for missing args, args that are not a JSON object or an unknown
+        command, 500 otherwise (e.g. a num_tools that is not an integer). A device that does
+        not respond is not an error (see above).
 
         :param command_name:
                     the command to be executed
@@ -141,9 +162,6 @@ class Okuma(AbstractDevice):
                     json with the arguments for the command
 
         :return:    the response after execution of command.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         # Parse the command from the incoming request
         args = self._parse_args(command_args)
@@ -179,14 +197,9 @@ class Okuma(AbstractDevice):
 
     def _read_interval_data(self) -> str:
         """
-        Method to read the status of the device on an interval
+        Method to read the status of the device on an interval. Does nothing.
 
-        :return:    status - string
-
-        :author:    tylerjm@flexxbotics.com
-        :author:    sanua@flexxbotics.com
-
-        :since:     ODOULS.3 (7.1.15.3)
+        :return:    None (the body is empty)
         """
         pass
 
@@ -197,11 +210,9 @@ class Okuma(AbstractDevice):
         :param function:
                     Not used
 
-        :return:    status - string: the THINC server's GET_STATUS reply, or "ERROR" when it
-                    cannot be read (never raises)
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
+        :return:    status - string: the THINC server's GET_STATUS reply ("" when the device does
+                    not respond, which the runtime treats as nothing to report), or "ERROR" when
+                    an exception is raised (never raises)
         """
         try:
             self._ensure_connected()
@@ -222,11 +233,8 @@ class Okuma(AbstractDevice):
         :param function:
                     Not used
 
-        :return:    value - string. Raises on failure (503 when the device does not respond,
-                    500 otherwise).
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
+        :return:    value - string: the THINC server's reply, "" when the device does not respond
+                    (TCP.send does not raise). Raises 500 on any other failure.
         """
         try:
             self._ensure_connected()
@@ -250,11 +258,8 @@ class Okuma(AbstractDevice):
         :param function:
                     Not used
 
-        :return:    value - string: the THINC server's reply. Raises on failure (503 when the
-                    device does not respond, 500 otherwise).
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
+        :return:    value - string: the THINC server's reply, "" when the device does not respond
+                    (TCP.send does not raise). Raises 500 on any other failure.
         """
         try:
             self._ensure_connected()
@@ -269,10 +274,10 @@ class Okuma(AbstractDevice):
         """
         Method to write the specified parameter on the device
 
-        :param parameter:
+        :param parameter_name:
                     The parameter to write - string
 
-        :param parameter:
+        :param parameter_value:
                     The value of the parameter to write - string
 
         :param function:
@@ -280,9 +285,6 @@ class Okuma(AbstractDevice):
 
         :return:    value - string. Parameters are THINC variables (SET_VAR), so this is
                     _write_variable.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         return self._write_variable(parameter_name, parameter_value, function)
 
@@ -290,17 +292,14 @@ class Okuma(AbstractDevice):
         """
         Method to read the specified parameter from the device
 
-        :param parameter:
-                    The parameter to write - string
+        :param parameter_name:
+                    The parameter to read - string
 
         :param function:
                     Not used
 
         :return:    value - string. Parameters are THINC variables (GET_VAR), so this is
                     _read_variable.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         return self._read_variable(parameter_name, function)
 
@@ -309,11 +308,8 @@ class Okuma(AbstractDevice):
         Loads a file into memory on the device
 
         :param file_name: the name of the file to load into memory
-        :return: the THINC server's reply. Raises on failure (503 when the device does not
-                 respond, 500 otherwise).
-
-        :author:    cadenc@flexxbotics.com
-        :since:     PBR.6 (7.1.16.6)
+        :return: the THINC server's reply to SELECT_PROGRAM:<file_name>, "" when the device does
+                 not respond (TCP.send does not raise). Raises 500 on any other failure.
         """
         try:
             self._ensure_connected()
@@ -324,13 +320,11 @@ class Okuma(AbstractDevice):
 
     def _get_all_tool_life(self, number_of_tools):
         """
-        Loads a file into memory on the device
+        Reads GET_REMAINING_TOOL_LIFE for tools 1..number_of_tools and sends each reply (stripped)
+        as the variable event "tool_<n>_life". A tool whose read or event fails is logged and skipped.
 
         :param number_of_tools: the number of tools to get tool life for
-        :return: success
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     PBR.6 (7.1.16.6)
+        :return: "OK", always. Raises ValueError when number_of_tools is not an integer.
         """
         number_of_tools = int(number_of_tools)
         try:

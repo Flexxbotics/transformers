@@ -51,9 +51,9 @@ class Holzher(AbstractDevice):
     Optional metaData:
       - scheme: "http" | "https" (default "http")
       - timeout: float seconds (default 2.0)
-      - retry: int (default 2)
-      - retry_interval: float seconds (default 0.1)
-      - auto_connect: bool (default True)
+      - retry: int (default 2; read but not used)
+      - retry_interval: float seconds (default 0.1; read but not used)
+      - auto_connect: bool (default True; read but not used)
       - health_path: str (optional preferred probe path, e.g. "/ping")
       - username/password OR token (optional auth)
 
@@ -120,7 +120,8 @@ class Holzher(AbstractDevice):
         Supported commands:
           - connect
           - disconnect
-          - get_status   (lightweight connectivity check via GET probe)
+          - get_status   (alias "status"; lightweight connectivity check: GET of
+                          metaData.health_path, else "/health")
           - read_http    (HTTP GET)
           - post_http    (HTTP POST)
 
@@ -128,6 +129,12 @@ class Holzher(AbstractDevice):
           command_args is expected to be a JSON object string, optionally wrapped as:
             {"value": "<json-string>"}  OR {"value": {...}}
           Invalid JSON is rejected with a 400.
+
+        Args for get_status (both optional):
+          {
+            "timeout": 2.0,                    # optional; defaults to self.timeout
+            "headers": {"X-Foo": "bar"}        # optional
+          }
 
         Args for read_http:
           {
@@ -139,14 +146,19 @@ class Holzher(AbstractDevice):
         Args for post_http:
           {
             "path": "/api/do_something",       # required
-            "json": {...},                     # optional JSON body
-            "data": "raw",                     # optional raw body (string/bytes)
+            "json": {...},                     # optional JSON body (object or list only)
+            "data": "raw",                     # optional raw body (string/bytes);
+                                               # requests sends data, not json, if both are set
             "timeout": 2.0,                    # optional; defaults to self.timeout
             "headers": {"Content-Type":"..."}  # optional
           }
 
-        Returns:
-          A JSON string with "status": "ok" on success.
+        Returns (JSON strings; "snippet"/"body" are the first 200 characters of the reply):
+          connect / disconnect: {"status": "ok", "connected": true|false}
+          get_status:           {"status": "ok", "connected": true, "http_status": <code>,
+                                 "probe_path": "...", "snippet": "..."}
+          read_http / post_http: {"status": "ok", "http_status": <code>, "path": "...",
+                                  "body": "..."}
 
         Errors raise: 400 for missing/invalid args or an unknown command,
         503 when the device does not respond, 500 when it answers with an
@@ -234,8 +246,9 @@ class Holzher(AbstractDevice):
 
     def _read_interval_data(self) -> str:
         """
-        Method to read the status of the Holzher device on an interval.
-        Never raises.
+        Called on every poll: connects if not connected (no polling reads are
+        implemented yet).  Returns '{"status": "ok"}', or "" after logging a
+        failed connect (the runtime discards the value).  Never raises.
         """
         try:
             self._ensure_connected()
@@ -249,9 +262,10 @@ class Holzher(AbstractDevice):
         """
         Read Holzher status.
 
-        No status endpoint is known yet, so a reachable controller reports ""
-        (nothing to report) and an unreachable one "ERROR".  `function` is
-        ignored.  Never raises.
+        No status endpoint is known yet.  While connected it returns "" (nothing
+        to report) without contacting the controller.  When not connected it
+        runs the connect probe: "" if that succeeds, "ERROR" if it fails.
+        `function` is ignored.  Never raises.
         """
         try:
             self._ensure_connected()
@@ -394,11 +408,13 @@ class Holzher(AbstractDevice):
 
         For HTTP-based devices, "connect" means:
           - create a requests.Session
-          - successfully probe at least one endpoint
+          - probe endpoints until one answers 2xx/3xx, or 401/403 (reachable
+            but unauthorized)
 
-        One pass over the probe endpoints, each request bounded by
-        metaData.timeout.  A connection error ends the pass at once (the
-        controller is unreachable).  Raises ServiceUnavailableException on failure.
+        Returns at once when already connected.  One pass over the probe
+        endpoints, each request bounded by metaData.timeout.  Any request error
+        (e.g. a connection error or timeout) ends the pass at once.  Raises
+        ServiceUnavailableException on failure.
         """
         if self._connected and self.client is not None:
             return

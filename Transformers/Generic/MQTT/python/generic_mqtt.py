@@ -100,7 +100,7 @@ class GenericMQTT(AbstractDevice):
                           as-is (default "").
     interval_topics     : Comma-separated topics drained on interval.  These are
                           subscribed on connect and their latest messages are
-                          reported by _read_interval_data.
+                          returned by _read_interval_data.
 
     MQTT nuances
     ------------
@@ -115,18 +115,23 @@ class GenericMQTT(AbstractDevice):
     * Wildcards: subscriptions accept "+" (single level) and "#" (multi level,
       terminal only).  Publishes must be to concrete topics — no wildcards.
     * The broker connection is held open with a background network thread and
-      reused across commands, so subscriptions persist between calls.  A
-      dropped connection is re-established automatically on the next command.
+      reused across commands, so subscriptions persist between calls while it
+      stays up.  A dropped connection is re-established by the client (its
+      network thread, or the next call), but as a clean session, so earlier
+      subscriptions are gone; subscribe_on_connect and interval_topics are
+      only renewed when the transformer itself reconnects (after a failed
+      call or a disconnect command).
 
     Errors
     ------
     Failures raise the runtime's exceptions, which the API returns as HTTP
-    errors carrying the message: BadRequestException (400) for bad args or an
-    unknown command, ServiceUnavailableException (503) when the broker does not
+    errors carrying the message: BadRequestException (400) for missing or
+    non-JSON args, a qos outside 0-2, a wildcard will topic, or an unknown
+    command, ServiceUnavailableException (503) when the broker does not
     respond (or, for _read_variable, no message arrives within read_timeout),
     ServerErrorException (500) for anything else, including a publish the
-    client rejected.  _read_status never raises (it returns "ERROR"), and
-    neither does _read_interval_data.
+    client rejected and a non-numeric value for a numeric arg.  _read_status
+    never raises (it returns "ERROR"), and neither does _read_interval_data.
     """
 
     def __init__(self, device: Device):
@@ -201,7 +206,7 @@ class GenericMQTT(AbstractDevice):
         ------------------
         connect
             Open the connection to the broker (and auto-subscribe any topics
-            configured in metaData.subscribe_on_connect).
+            configured in metaData.subscribe_on_connect and interval_topics).
             Returns: {"status": "ok", "connected": true, "broker": "host:port"}
 
         disconnect
@@ -241,7 +246,9 @@ class GenericMQTT(AbstractDevice):
                   qos (int, optional) — subscription QoS (default default_qos)
             Returns: {"status": "ok", "topic": "...", "message": {...}|null}
                      message is {"topic","payload","qos","retain","timestamp"}
-                     or null when no message arrived within the timeout.
+                     ("payload_hex" in place of "payload" when the payload is
+                     not decoded) or null when no message arrived within the
+                     timeout.
 
         receive
             Drain buffered inbound messages without subscribing or waiting.
@@ -259,9 +266,10 @@ class GenericMQTT(AbstractDevice):
                   qos (int, optional), retain (bool, optional)
             Returns: {"status": "ok", "will_topic": "..."}
 
-        Errors raise: 400 for missing/invalid args or an unknown command,
-        503 when the broker does not respond, 500 otherwise (including a
-        publish the client rejected).
+        Errors raise: 400 for missing or non-JSON args, a qos outside 0-2, a
+        wildcard will topic, or an unknown command, 503 when the broker does
+        not respond, 500 otherwise (including a publish the client rejected
+        and a non-numeric value for a numeric arg).
         """
         args = self._parse_args(command_args)
         self._info(message=f"Sending command: {command_name}")
@@ -354,7 +362,7 @@ class GenericMQTT(AbstractDevice):
 
     def _read_interval_data(self) -> str:
         """
-        Periodic poll. Drains the receive buffer and reports the latest message
+        Periodic poll. Drains the receive buffer and returns the latest message
         seen for each topic in metaData.interval_topics.  Those topics are
         subscribed on connect, so their messages accumulate between polls.
         Falls back to _read_status when no interval_topics are configured.
@@ -387,6 +395,8 @@ class GenericMQTT(AbstractDevice):
         When status_ok_payload is set, its presence in the payload maps to
         "RUNNING"; any other payload is returned verbatim.
         When status_ok_payload is blank, the raw payload is returned as-is.
+        No message within read_timeout (or an empty payload) returns
+        "UNAVAILABLE"; any failure returns "ERROR" (never raises).
         """
         if not self.status_topic:
             self.status = "NOT_CONFIGURED"
@@ -533,9 +543,11 @@ class GenericMQTT(AbstractDevice):
 
     def _publish(self, topic: str, payload, qos: int, retain: bool) -> None:
         """
-        Publish one message; raise ServerErrorException when the client did not
-        accept it.  MQTT.publish() discards the result, so this goes through
-        MQTT.send(), which returns how many publishes the client accepted.
+        Publish one message; raise ServerErrorException when the client rejected
+        it (paho raised).  MQTT.publish() discards the result, so this goes
+        through MQTT.send(), which returns how many publish calls did not raise.
+        paho's return code is not checked, so a publish paho drops without
+        raising still counts as sent.
         """
         self._ensure_connected()
         sent = self._client.send(MqttPublish(topic=topic, payload=payload,

@@ -44,9 +44,11 @@ class SturtevantGlobal400(AbstractDevice):
             self.__init__()
     def __init__(self, device: Device):
         """
-        Template device class. Inherits AbstractDevice class.
+        Sturtevant Global400 torque controller device class (Open Protocol over TCP).
+        Reads metaData "ip_address" and "port" (both required; ValueError when missing).
+        Does not connect; the socket is opened by load_file or the connect command.
 
-        :param Device:
+        :param device:
                     the device object
 
         :return:    a new instance
@@ -108,9 +110,6 @@ class SturtevantGlobal400(AbstractDevice):
                     json with the arguments for the command
 
         :return:    the response after execution of command.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         # Parse the command from the incoming request
         args = self._parse_args(command_args)
@@ -136,14 +135,9 @@ class SturtevantGlobal400(AbstractDevice):
 
     def _read_interval_data(self) -> str:
         """
-        Method to read the status of the device on an interval
+        Does nothing; no interval data is read (job status comes from the monitor thread).
 
-        :return:    status - string
-
-        :author:    tylerjm@flexxbotics.com
-        :author:    sanua@flexxbotics.com
-
-        :since:     ODOULS.3 (7.1.15.3)
+        :return:    None
         """
         pass
 
@@ -156,9 +150,6 @@ class SturtevantGlobal400(AbstractDevice):
 
         :return:    status - "PENDING_JOB", "RUNNING", "DONE", or "ERROR" (job error, or the
                     job load / status monitor failed)
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         status = ""
         try:
@@ -194,9 +185,6 @@ class SturtevantGlobal400(AbstractDevice):
                     Ignored
 
         :return:    value - string. Raises BadRequestException (400) for any other name.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         if variable_name == "current_tool":
             return str(self.job_model.current_tool)
@@ -204,12 +192,9 @@ class SturtevantGlobal400(AbstractDevice):
 
     def _read_file_names(self) -> list:
         """
-        Method to get a list of filenames from the device
+        Not supported: always returns an empty list (nothing is read from the controller).
 
-        :return:    list of filenames
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     KEYSTONE.4 (7.1.11.4)
+        :return:    []
         """
 
         # Return list of available filenames from the device
@@ -219,13 +204,15 @@ class SturtevantGlobal400(AbstractDevice):
 
     def _load_file(self, file_name : str):
         """
-        Loads a file into memory on the device
+        Selects a job on the controller over Open Protocol: opens a new connection and
+        session (MID 0001), turns the current job off (MID 0130), selects the job (MID 0038),
+        reads the job data (MID 0032/0033) for the tool order and batch size, subscribes to
+        job info (MID 0034) and starts the job status monitor thread.  Raises
+        ServiceUnavailableException (503) when the connection cannot be opened and
+        ServerErrorException (500) for other failures; status then reads "ERROR".
 
-        :param file_name: the name of the file to load into memory
+        :param file_name: the job ID to select
         :return: the job's batch size - string
-
-        :author:    zacc@flexxbotics.com
-        :since:     MODELO.3 (7.1.13.3)
         """
         self.job_model.reset()
         self.job_model.job_status = "0"

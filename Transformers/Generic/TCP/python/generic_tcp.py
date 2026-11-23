@@ -55,7 +55,8 @@ class GenericTCP(AbstractDevice):
     timeout             : Socket timeout in seconds (default 2.0)
     retry               : Connection retry attempts (default 2)
     retry_interval      : Seconds between retries (default 0.1)
-    encoding            : Character encoding for send/receive (default "utf-8")
+    encoding            : Character encoding for outgoing text (default "utf-8").
+                          Replies are always decoded as UTF-8.
     response_time       : Seconds to wait after sending before reading
                           (default 0.1)
     buffer_size         : Receive buffer size in bytes (default 1024)
@@ -80,19 +81,28 @@ class GenericTCP(AbstractDevice):
     * _write_variable / _write_parameter format write_template with {name}
       and {value}, then append command_terminator.
     * With keep_alive=true the transformer reuses an open socket and calls
-      send_without_connect() for each operation.  The connection is
-      re-established automatically on any socket error.
+      send_without_connect() for each operation.  A send/receive error (or a
+      connection the device closed) is not raised: the TCP client closes the
+      socket, that call returns "", and the next call reconnects.
     * With keep_alive=false (default) every send() call opens a fresh
       connection, which is more robust for intermittent devices but adds
       latency on high-frequency polling.
+    * Replies to send, send_bytes and the read/write/status methods come from
+      a single recv() of up to buffer_size bytes, with every space, CR, LF,
+      ">", 0x02 and 0x17 removed by the TCP client.  An unreachable or silent
+      device gives an empty reply, not an error.
 
     Errors
     ------
     Failures raise the runtime's exceptions, which the API returns as HTTP
-    errors carrying the message: BadRequestException (400) for bad args or an
-    unknown command, ServiceUnavailableException (503) when the device does not
-    respond, ServerErrorException (500) for anything else.  _read_status never
-    raises (it returns "ERROR"), and neither does _read_interval_data.
+    errors carrying the message: BadRequestException (400) for missing or
+    non-JSON args, bad hex_data or an unknown command,
+    ServiceUnavailableException (503) when the transformer's held connection
+    (keep_alive=true, or the connect and receive commands) cannot be opened
+    or a receive command fails, ServerErrorException (500) for anything else.
+    A device that is unreachable or silent during send, send_bytes or a
+    read/write/status call is not an error: the reply is "".  _read_status
+    never raises (it returns "ERROR"), and neither does _read_interval_data.
     """
 
     def __init__(self, device: Device):
@@ -160,21 +170,30 @@ class GenericTCP(AbstractDevice):
             Returns: {"status": "ok", "command": "...", "response": "..."}
 
         send_bytes
-            Send a hex-encoded byte payload and receive the response as hex.
-            Useful for binary protocols where commands are not printable ASCII.
+            Send a hex-encoded byte payload and return the reply as hex.
+            Only the outgoing bytes are raw: the reply is decoded as UTF-8 and
+            cleaned like any other reply (see the class Usage notes) before it
+            is re-encoded with metaData.encoding, so a binary reply loses
+            bytes, and one that is not valid UTF-8 comes back as "".
             Args: hex_data (str, required) — hex string, e.g. "0A0D4654"
                   response_time (float, optional)
                   buffer_size (int, optional)
             Returns: {"status": "ok", "response_hex": "..."}
 
         receive
-            Receive data from an already-open socket without sending first.
-            Requires keep_alive=true (or a prior explicit connect command).
+            Receive data on the transformer's held socket without sending
+            first, opening it if needed.  With keep_alive=false, send and the
+            read/write methods use their own per-call sockets, so their
+            replies never arrive here.  The decoded text is returned without
+            the cleaning send applies; 503 if nothing arrives within
+            metaData.timeout.
             Args: buffer_size (int, optional)
             Returns: {"status": "ok", "response": "..."}
 
-        Errors raise: 400 for missing/invalid args or an unknown command,
-        503 when the device does not respond, 500 otherwise.
+        Errors raise: 400 for missing or non-JSON args, bad hex_data or an
+        unknown command, 503 when the held connection cannot be opened or a
+        receive fails, 500 otherwise.  An unreachable or silent device during
+        send or send_bytes is not an error: the reply is "".
         """
         args = self._parse_args(command_args)
         self._info(message=f"Sending command: {command_name}")
@@ -258,6 +277,10 @@ class GenericTCP(AbstractDevice):
         When status_ok_response is set, its presence in the response maps to
         "RUNNING"; any other response is returned verbatim.
         When status_ok_response is blank, the raw response is returned as-is.
+        An empty response (what an unreachable or silent device gives) returns
+        "UNAVAILABLE" when status_ok_response is blank, and "" (no status to
+        report) when it is set.  A failure that raises (e.g. keep_alive=true
+        and the connection cannot be opened) returns "ERROR".
         """
         if not self.status_command:
             self.status = "NOT_CONFIGURED"
@@ -284,7 +307,9 @@ class GenericTCP(AbstractDevice):
         """
         Send variable_name as the TCP command and return the response as a
         plain string.  metaData.command_terminator is appended automatically.
-        Raises on failure (503 when the device does not respond, 500 otherwise).
+        An unreachable or silent device returns "" rather than raising.
+        Raises 503 when keep_alive=true and the connection cannot be opened,
+        500 on other failures.
         """
         try:
             return self._send(
@@ -300,8 +325,10 @@ class GenericTCP(AbstractDevice):
         """
         Format metaData.write_template with {name} and {value}, then send it.
         metaData.command_terminator is appended automatically.
-        Returns the device response.  Raises on failure (503 when the device
-        does not respond, 500 otherwise).
+        Returns the device response ("" when the device is unreachable or
+        silent, rather than raising).  Raises 503 when keep_alive=true and the
+        connection cannot be opened, 500 on other failures (e.g. a bad
+        write_template).
         """
         try:
             cmd = self.write_template.format(name=variable_name, value=variable_value)

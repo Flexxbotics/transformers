@@ -52,11 +52,13 @@ class MitsubishiMelsec(AbstractDevice):
     Errors
     ------
     Failures raise the runtime's exceptions, which the API returns as HTTP
-    errors carrying the message: BadRequestException (400) for bad args, an
-    unknown device prefix or an unknown command, ServiceUnavailableException
-    (503) when the PLC does not respond, ServerErrorException (500) for
-    anything else.  _read_status never raises (it returns "ERROR"), and
-    neither does _read_interval_data.
+    errors carrying the message: BadRequestException (400) for missing or
+    non-JSON args, an unknown device prefix in a variable/parameter read or
+    write, or an unknown command, ServiceUnavailableException (503) when the
+    PLC does not respond, ServerErrorException (500) for anything else
+    (including args that do not convert and device names the commands pass
+    straight to pymcprotocol).  _read_status never raises (it returns "ERROR"),
+    and neither does _read_interval_data.
     """
 
     def __init__(self, device: Device):
@@ -124,34 +126,38 @@ class MitsubishiMelsec(AbstractDevice):
 
         read_words
             Read consecutive word-unit (D, W, R, …) devices.
-            Args: device (str), count (int, default 1)
-            Returns: {"device": "D100", "count": 1, "values": [...]}
+            Args: device (str, required), count (int, default 1)
+            Returns: {"status": "ok", "device": "D100", "count": 1, "values": [...]}
 
         read_bits
             Read consecutive bit-unit (M, X, Y, …) devices.
-            Args: device (str), count (int, default 1)
-            Returns: {"device": "M0", "count": 1, "values": [...]}
+            Args: device (str, required), count (int, default 1)
+            Returns: {"status": "ok", "device": "M0", "count": 1, "values": [...]}
 
         write_words
             Write consecutive word-unit devices.
-            Args: device (str), values ([int, ...])
+            Args: device (str, required), values ([int, ...], required)
+            Returns: {"status": "ok", "device": "D100", "values": [...]}
 
         write_bits
             Write consecutive bit-unit devices (0 or 1).
-            Args: device (str), values ([int, ...])
+            Args: device (str, required), values ([int, ...], required)
+            Returns: {"status": "ok", "device": "M0", "values": [...]}
 
         random_read
             Non-contiguous read across word and/or bit devices in one round-trip.
-            Args: word_devices ([str]), bit_devices ([str])
-            Returns: {"word": {"D0": 10, ...}, "bit": {"M0": 1, ...}}
+            Args: word_devices ([str], default []), bit_devices ([str], default [])
+            Returns: {"status": "ok", "word": {"D0": 10, ...}, "bit": {"M0": 1, ...}}
 
         random_write
             Non-contiguous write across word and/or bit devices in one round-trip.
-            Args: word_devices ([str]), word_values ([int]),
+            Args (each default []): word_devices ([str]), word_values ([int]),
                   bit_devices ([str]), bit_values ([int])
+            Returns: {"status": "ok"}
 
-        Errors raise: 400 for missing/invalid args or an unknown command,
-        503 when the PLC does not respond, 500 otherwise.
+        Errors raise: 400 for missing or non-JSON args or an unknown command,
+        503 when the PLC does not respond, 500 otherwise (including args that
+        do not convert to int).
         """
         args = self._parse_args(command_args)
         self._info(message=f"Sending command: {command_name}")
@@ -248,13 +254,15 @@ class MitsubishiMelsec(AbstractDevice):
         Read PLC run/stop status.
 
         Reads metaData.status_device (default SM400 — the always-ON special
-        relay present on all modern Mitsubishi PLCs).  A value of 1 means the
-        CPU is running normally; 0 indicates a stopped or faulted state.
+        relay present on all modern Mitsubishi PLCs) as a single bit.  A value
+        of 1 means the CPU is running normally; 0 indicates a stopped or
+        faulted state.  Returns "RUNNING" (1), "STOPPED" (0), or "ERROR" when
+        the read fails (the transformer is then marked disconnected).
 
         Common status devices:
           SM400  — always ON (1) when CPU is running  (iQ-R, iQ-F, Q, L)
-          SM0    — first-scan flag (momentary, not useful for polling)
-          SD0    — PLC type code (word, iQ-R/Q/L)
+          SM0    — self-diagnostic error flag (ON = error, so it would read as "RUNNING")
+          SD0    — self-diagnostic error code (a word device; this read is bit-only)
         """
         try:
             self._ensure_connected()
