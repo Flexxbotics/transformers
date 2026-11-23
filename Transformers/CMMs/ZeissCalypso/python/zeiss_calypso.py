@@ -36,7 +36,7 @@ class ZeissCalypso(AbstractDevice):
     Rather than talking to the CMM directly, this transformer talks to the
     standalone Calypso report server (see
     ../extensions/calypso_report_server.py) running on the
-    CMM's Windows PC. That server scans a directory of CALYPSO report PDFs and
+    CMM's Windows PC or outside the flexx core container. That server scans a directory of CALYPSO report PDFs and
     exposes them over JSON-RPC 2.0. This transformer forwards commands to it via
     the HttpRest protocol and returns the structured inspection data.
     """
