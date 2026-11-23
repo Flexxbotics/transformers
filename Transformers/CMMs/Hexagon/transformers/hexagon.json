@@ -2,11 +2,12 @@
   "_class": "Hexagon",
   "transformer": "Hexagon",
   "commands": {
-    "run_program": {
-      "program": ""
-    },
+    "run_program": {},
     "connect": {},
-    "disconnect": {}
+    "disconnect": {},
+    "delete_programs": {},
+    "pass": {},
+    "clear_parameters": {}
   },
   "metaData": {
     "ip_address": "",

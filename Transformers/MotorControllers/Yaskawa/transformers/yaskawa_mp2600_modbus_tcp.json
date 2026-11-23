@@ -6,6 +6,9 @@
     "disconnect": {},
     "set_carousel_index": {
       "index": ""
+    },
+    "set_manual_control": {
+      "value": ""
     }
   },
   "metaData": {

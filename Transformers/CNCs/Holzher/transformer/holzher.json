@@ -2,6 +2,28 @@
   "_class": "Holzher",
   "transformer": "holzher",
   "commands": {
+    "connect": {},
+    "disconnect": {},
+    "get_status": {
+      "timeout": "",
+      "headers": ""
+    },
+    "status": {
+      "timeout": "",
+      "headers": ""
+    },
+    "read_http": {
+      "path": "",
+      "timeout": "",
+      "headers": ""
+    },
+    "post_http": {
+      "path": "",
+      "json": "",
+      "data": "",
+      "timeout": "",
+      "headers": ""
+    }
   },
   "metaData": {
     "ip_address": "",

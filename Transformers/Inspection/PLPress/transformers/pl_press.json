@@ -6,13 +6,25 @@
     "disconnect": {},
     "ping": {},
     "list_reports": {
-      "modified_within_hours": ""
+      "since": "",
+      "until": "",
+      "modified_within_hours": "",
+      "pattern": "",
+      "recursive": "",
+      "directory": ""
     },
     "get_reports": {
-      "modified_within_hours": ""
+      "since": "",
+      "until": "",
+      "modified_within_hours": "",
+      "pattern": "",
+      "recursive": "",
+      "directory": "",
+      "include_measurements": ""
     },
     "get_report": {
-      "file": ""
+      "file": "",
+      "directory": ""
     }
   },
   "metaData": {

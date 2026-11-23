@@ -13,12 +13,6 @@
       "value": "",
       "plc_type": "INT"
     },
-    "read_state": {},
-    "add_notification": {
-      "symbol": "",
-      "plc_type": "INT",
-      "cycle_time_ms": "100"
-    },
     "list_symbols": {
       "prefix": "",
       "limit": "200"

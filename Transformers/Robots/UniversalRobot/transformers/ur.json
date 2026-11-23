@@ -4,19 +4,134 @@
   "commands": {
     "connect": {},
     "disconnect": {},
-    "play_program": {
-      "arg": ""
-    },
-    "unlock_protective_stop": {
-      "arg": ""
-    },
-    "reset_safety": {
-      "arg": ""
-    },
     "set_value": {
       "key": "",
       "value": ""
-    }
+    },
+    "get_value": {
+      "key": ""
+    },
+    "get_variable": {
+      "key": ""
+    },
+    "generate_random_number": {
+      "num1": "",
+      "num2": "",
+      "decimal_places": ""
+    },
+    "get_ur_scripts": {},
+    "read_flexx_interface_commands": {},
+    "send_flexx_interface_command": {
+      "host": "",
+      "port": "",
+      "command": ""
+    },
+    "read_flexx_core_commands": {},
+    "load_robot_program": {
+      "program": ""
+    },
+    "get_loaded_program": {},
+    "run_script_exporter": {},
+    "play_program": {},
+    "stop_program": {},
+    "power_on": {},
+    "brake_release": {},
+    "set_freedrive": {},
+    "end_freedrive": {},
+    "send_program_file": {
+      "programName": "",
+      "programFile": ""
+    },
+    "backup_active_program": {},
+    "get_program_names": {},
+    "get_program_file": {
+      "filename": ""
+    },
+    "unlock_protective_stop": {},
+    "restart_safety": {},
+    "reset_safety": {},
+    "stopj_primary": {},
+    "stopj_secondary": {},
+    "stopl_primary": {},
+    "stopl_secondary": {},
+    "set_waypoint_to_current_pose": {
+      "waypoint_name": ""
+    },
+    "set_standard_digital_output": {
+      "output_number": "",
+      "signal_level": ""
+    },
+    "set_configurable_digital_output": {
+      "output_number": "",
+      "signal_level": ""
+    },
+    "set_tool_digital_output": {
+      "output_number": "",
+      "signal_level": ""
+    },
+    "move_to_joints": {
+      "joints": "",
+      "timeout": ""
+    },
+    "close_popup": {},
+    "get_flexx_feature_pose": {
+      "featureName": ""
+    },
+    "increase_part_count": {},
+    "reset_part_count": {},
+    "increase_failure_count": {},
+    "set_failure_reason": {
+      "failureReason": ""
+    },
+    "set_file_path": {
+      "filePath": ""
+    },
+    "reset_failure_count": {},
+    "cycle_start": {},
+    "cycle_end": {},
+    "on_going_cycle_start": {},
+    "on_going_cycle_end": {},
+    "calculate_cycle": {},
+    "get_part_count": {},
+    "get_failure_count": {},
+    "get_failure_reason": {},
+    "get_file_path": {},
+    "get_robot_state": {},
+    "set_custom_status": {
+      "status": ""
+    },
+    "set_use_custom_status_false": {},
+    "set_use_custom_status_true": {},
+    "get_label": {},
+    "set_label": {
+      "label": ""
+    },
+    "set_monitoring_speed": {
+      "speed": ""
+    },
+    "activate_edge": {},
+    "register_edge": {
+      "name": ""
+    },
+    "get_edge_registration_status": {},
+    "connect_internet": {
+      "networkName": "",
+      "networkPassword": ""
+    },
+    "get_internet_status": {},
+    "enable_remote_session": {},
+    "disable_remote_session": {
+      "pid": ""
+    },
+    "set_headless_mode": {
+      "headless": ""
+    },
+    "get_headless_mode": {},
+    "set_edge_ip_address": {
+      "ipaddress": ""
+    },
+    "get_edge_ip_address": {},
+    "get_edge_connected": {}
   },
   "metaData": {
     "ip_address": "",

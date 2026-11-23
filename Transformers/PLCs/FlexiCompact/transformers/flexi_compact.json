@@ -3,10 +3,7 @@
   "transformer": "FlexiCompact",
   "commands": {
     "connect": {},
-    "disconnect": {},
-    "run_routine": {
-      "program": ""
-    }
+    "disconnect": {}
   },
   "metaData": {
     "ip_address": "",

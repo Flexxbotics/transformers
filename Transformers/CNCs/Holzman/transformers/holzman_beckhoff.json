@@ -2,6 +2,16 @@
   "_class": "HolzmanBeckhoff",
   "transformer": "holzman_beckhoff",
   "commands": {
+    "connect": {},
+    "disconnect": {},
+    "read": {
+      "symbol": "",
+      "plc_type": "INT"
+    },
+    "list_symbols": {
+      "prefix": "",
+      "limit": "200"
+    }
   },
   "metaData": {
     "ip_address": "",

@@ -4,8 +4,10 @@
   "commands": {
     "connect": {},
     "disconnect": {},
-    "get_io_states": {
-      "arg": ""
+    "get_io_states": {},
+    "set_output": {
+      "output": "",
+      "state": ""
     }
   },
   "metaData": {

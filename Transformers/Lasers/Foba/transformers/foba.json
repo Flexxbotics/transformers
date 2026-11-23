@@ -2,11 +2,17 @@
   "_class": "FOBA",
   "transformer": "FOBA",
   "commands": {
-    "run_program": {
-      "program": ""
-    },
+    "run_program": {},
     "connect": {},
-    "disconnect": {}
+    "disconnect": {},
+    "get_alignment_status": {
+      "layout_position": "",
+      "mark_set_index": ""
+    },
+    "get_alignment_data": {
+      "data": ""
+    },
+    "get_active_order": {}
   },
   "metaData": {
     "ip_address": "",
