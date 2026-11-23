@@ -25,9 +25,18 @@ import os
 import ftputil
 import subprocess
 from collections import Counter
+import re
+
+from werkzeug.exceptions import HTTPException
 
 from data_models.device import Device
 from transformers.abstract_device import AbstractDevice
+from exceptions.flexxCoreExceptions import (
+    FlexxCoreException,
+    BadRequestException,
+    ServerErrorException,
+    ServiceUnavailableException,
+)
 
 
 class Fanuc(AbstractDevice):
@@ -55,11 +64,15 @@ class Fanuc(AbstractDevice):
         super().__init__(device)
 
         # Setup specifics to the device interface
-        self.meta_data = device.metaData
-        self.ip_address = self.meta_data["ip_address"]
-        self.port = self.meta_data["port"]
+        self.meta_data = device.metaData or {}
+        self.ip_address = self.meta_data.get("ip_address", "")
+        self.port = str(self.meta_data.get("port", "3080"))
+        if not self.ip_address:
+            raise ValueError("Fanuc: metaData must contain 'ip_address'")
         self.root_url = "http://" + self.ip_address + ":" + self.port
-        self.client = Session()
+        # The HTTP session is created by _connect (no device I/O here)
+        self.client = None
+        self._connected = False
 
         # This config specifies the Karel server endpoints
         self.endpoint_cfg = {"state": "/KAREL/FLEXX_GET_STATE"}
@@ -72,15 +85,16 @@ class Fanuc(AbstractDevice):
         self._parent_directory = str(
             Path(__file__).parent.parent.parent.parent.parent.parent
         )
-        self._robot_state = self._get_state()
+        # The robot state is read on demand by _read_status (no device I/O here)
+        self._robot_state = {}
         self._previous_cycle_end = 0
         self.previous_failure_count = self._robot_state.get("failure_count", 0)
         self.previous_part_count = self._robot_state.get("part_count", 0)
 
-        self._targetFTPpath = self.meta_data["ftp_path"]
+        self._targetFTPpath = self.meta_data.get("ftp_path", "")
         self._programPath = "/md:/"
-        self._username = "flexxbotics"
-        self._pwd = "flexxbotics"
+        self._username = self.meta_data.get("ftp_username", "flexxbotics")
+        self._pwd = self.meta_data.get("ftp_password", "flexxbotics")
         self._programs_directory = (
                 os.path.join(os.getcwd(), "temp_program_files") + os.sep
         )
@@ -108,93 +122,64 @@ class Fanuc(AbstractDevice):
                 self.yaskawa_carousel_id = str(device.id)
 
     def __del__(self):
-        pass
+        try:
+            self._disconnect()
+        except Exception:
+            pass
 
     # ############################################################################## #
     # DEVICE COMMUNICATION METHODS
     # ############################################################################## #
-    def _execute_command(self, command: str) -> str:
-        """
-        Executes the command sent to the device.
-
-        :param command:
-                    the command to be executed
-
-        :return:    the response after execution of command.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     NOLA.1 (7.1.14.1)
-        """
-        # Parse the command from the incoming request
-        command_string = command["commandJson"]
-        command_json = json.loads(command_string)
-        command_name = command_json["command"]
-        args = command_json["args"]
-        response = ""
-
-        self._info(message="Sending command: " + command_string)
-        try:
-            if len(args) < 0:
-                URL = self.root_url + "/KARELCMD/" + command_name
-            else:
-                URL = self.root_url + "/KARELCMD/" + command_name + "?"
-                i = 1
-                for key in args.keys():
-                    karal_var = key
-                    karal_val = args[key]
-                    if i == len(args.keys()):
-                        URL += karal_var + "=" + karal_val
-                    else:
-                        URL += karal_var + "=" + karal_val + "&"
-                    i += 1
-
-            # Send request
-            self._info(message="Request: " + URL)
-            send_command_req = Request("GET", URL)
-            if self._send_request(req=send_command_req):
-                pass
-            else:
-                self._info(message="Send request failed")
-                raise Exception("Error returned from FANUC... " + command_name)
-
-        except Exception as e:
-            self._error(message=str(e))
-            raise Exception(
-                "Error when sending command, did not get response from FANUC: "
-                + command_name
-            )
-
-        return ">OK<"
-
     def _execute_command_v2(self, command_name: str, command_args: str, receive_json=False) -> str:
         """
         Executes the command sent to the device.
+
+        connect / disconnect
+            Open / close the HTTP session; connect also checks that the robot answers
+            (GET FLEXX_GET_STATE). Returns {"status": "ok", "connected": true|false}.
+        <any other name>
+            Runs the Karel program /KARELCMD/<NAME>?<ARG>=<VALUE>&... on the robot. The name,
+            arg names and values are upper-cased. The name must be a Karel identifier
+            (letter first, then letters, digits or "_"); anything else -> 400.
+            Returns {"status": "ok", "response": <the robot's reply, as JSON when it is JSON>}.
+
+        Errors raise: 400 for bad args or an invalid command name, 503 when the robot does
+        not respond, 500 otherwise.
 
         :param command_name:
                     the command to be executed
         :param command_args:
                     json with the arguments for the command
+        :param receive_json:
+                    ignored; kept so existing direct callers don't break
 
         :return:    the response after execution of command.
 
         :author:    tylerjm@flexxbotics.com
         :since:     ODOULS.3 (7.1.15.3)
         """
+        args = self._parse_args(command_args)
+        self._info(message="Sending command: " + command_name)
         try:
-            # Parse the command from the incoming request
-            args = json.loads(command_args)
-            args = json.loads(args["value"])
-            self._info(message="Sending command: " + command_name)
+            if command_name == "connect":
+                self._connect()
+                return json.dumps({"status": "ok", "connected": True})
 
-            response = ""
+            if command_name == "disconnect":
+                self._disconnect()
+                return json.dumps({"status": "ok", "connected": False})
+
+            if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", command_name or ""):
+                raise BadRequestException(f"Unknown command '{command_name}'")
+
             if len(args) < 0:
                 URL = self.root_url + "/KARELCMD/" + command_name.upper()
             else:
                 URL = self.root_url + "/KARELCMD/" + command_name.upper() + "?"
                 i = 1
                 for key in args.keys():
-                    karal_var = key
-                    karal_val = args[key]
+                    karal_var = str(key)
+                    karal_val = str(args[key])
                     if i == len(args.keys()):
                         URL += karal_var.upper() + "=" + karal_val.upper()
                     else:
@@ -204,23 +189,11 @@ class Fanuc(AbstractDevice):
             # Send request
             self._info(message="Request: " + URL)
             send_command_req = Request("GET", URL)
-            if self._send_request(req=send_command_req):
-                pass
-            else:
-                self._info(message="Send request failed")
-                raise Exception("Error returned from FANUC... " + command_name)
+            self._send_request(req=send_command_req)
+            return json.dumps({"status": "ok", "response": self._response_body()}, default=str)
 
         except Exception as e:
-            self._error(message=str(e))
-            raise Exception(
-                "Error when sending command, did not get response from FANUC: "
-                + command_name
-            )
-
-        if receive_json:
-            return self.response.json()
-        
-        return ">OK<"
+            self._raise_device_error(f"Command '{command_name}'", e)
 
     def _read_interval_data(self) -> str:
         """
@@ -247,52 +220,39 @@ class Fanuc(AbstractDevice):
         :author:    tylerjm@flexxbotics.com
         :since:     ODOULS.3 (7.1.15.3)
         """
-        # Robot status
-        self._robot_state = self._get_state()
-        status = self._robot_state.get("status", "ROBOT_READ_FAULT")
+        try:
+            # Robot status
+            self._robot_state = self._get_state()
+            status = self._robot_state.get("status", "ROBOT_READ_FAULT")
+        except Exception as e:
+            self._error(message=f"Status read failed: {e}")
+            self._connected = False
+            return "ERROR"
 
         return status
 
     def _read_variable(self, variable_name: str, function: str = None) -> str:
         """
-        Method to read the specified variable from the robot
+        Method to read the specified variable from the robot (Karel FLEXX_GET_VARIABLE)
 
         :param variable_name:
                     The name of the variable to read - string
 
         :param function:
-                    Optional parameter to provide the name of a function to run - string
+                    Ignored
 
-        :return:    value - string
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
-        """
-        value = self._read_variable_from_robot(variable_name=variable_name)
-
-        return value
-
-    def _write_variable(self, variable_name: str, variable_value: str, function: str = None) -> str:
-        """
-        Method to write the specified variable on the robot
-
-        :param variable_name:
-                    The name of the variable to write - string
-
-        :param variable_value:
-                    The value of the variable to write - string
-
-        :param function:
-                    Optional parameter to provide the name of a function to run - string
-
-        :return:    value - string
+        :return:    value - string: the reply's "value" field when it has one, else the reply as JSON.
+                    Raises on failure.
 
         :author:    tylerjm@flexxbotics.com
         :since:     ODOULS.3 (7.1.15.3)
         """
-        value = self._set_variable_on_robot()
+        try:
+            value = self._read_variable_from_robot(variable_name=variable_name)
 
-        return value
+            return self._reply_to_str(value)
+        except Exception as e:
+            self._raise_device_error(f"Read variable '{variable_name}'", e)
 
     def _write_parameter(self, parameter_name: str, parameter_value: str, function: str = None) -> str:
         """
@@ -307,31 +267,40 @@ class Fanuc(AbstractDevice):
         :param function:
                     Optional parameter to provide the name of a function to run - string
 
-        :return:    value - string
+        :return:    value - string: the written value. Raises on failure.
 
         :author:    tylerjm@flexxbotics.com
         :since:     ODOULS.3 (7.1.15.3)
         """
-        self._set_parameter_on_robot(parameter_name=parameter_name, parameter_value=parameter_value)
+        try:
+            self._set_parameter_on_robot(parameter_name=parameter_name, parameter_value=parameter_value)
+
+            return str(parameter_value)
+        except Exception as e:
+            self._raise_device_error(f"Write parameter '{parameter_name}'", e)
 
     def _read_parameter(self, parameter_name: str, function: str = None) -> str:
         """
-        Method to read the specified parameter from the robot
+        Method to read the specified parameter from the robot (Karel FLEXX_GET_PARAMETER)
 
         :param parameter:
                     The parameter to write - string
 
         :param function:
-                    Optional parameter to provide the name of a function to run - string
+                    Ignored
 
-        :return:    value - string
+        :return:    value - string: the reply's "value" field when it has one, else the reply as JSON.
+                    Raises on failure.
 
         :author:    tylerjm@flexxbotics.com
         :since:     ODOULS.3 (7.1.15.3)
         """
-        value = self._read_parameter_from_robot(parameter_name=parameter_name)
+        try:
+            value = self._read_parameter_from_robot(parameter_name=parameter_name)
 
-        return value
+            return self._reply_to_str(value)
+        except Exception as e:
+            self._raise_device_error(f"Read parameter '{parameter_name}'", e)
 
     def _read_file_names(self) -> list:
         """
@@ -347,16 +316,15 @@ class Fanuc(AbstractDevice):
         self.programs = []
         self._info(message="getting program names from machine")
         try:
-            with ftputil.FTPHost(self.host, self.username, self.pwd) as host:
-                names = host.listdir(host.curdir + self.programPath)
+            with ftputil.FTPHost(self.ip_address, self._username, self._pwd) as host:
+                names = host.listdir(host.curdir + self._programPath)
                 for name in names:
                     self.programs.append(name)
             self._info(message="got program names from machine")
             self._info(message=str(self.programs))
         except Exception as e:
             self.programs = []
-            self.status = "MACHINE_DISCONNECTED"
-            self._error(str(e))
+            self._raise_device_error("Read file names", e)
 
         return self.programs
 
@@ -373,9 +341,12 @@ class Fanuc(AbstractDevice):
         :since:     NOLA.1 (7.1.14.1)
         """
         # Reads the file content off the device
-        file_data = self._transfer_file_from_device(file_name)
+        try:
+            file_data = self._transfer_file_from_device(file_name)
 
-        return base64.b64encode(file_data)
+            return base64.b64encode(file_data).decode("ascii")
+        except Exception as e:
+            self._raise_device_error(f"Read file '{file_name}'", e)
 
     def _write_file(self, file_name: str, file_data: str) -> str:
         """
@@ -389,7 +360,10 @@ class Fanuc(AbstractDevice):
         :author:    tylerjm@flexxbotics.com
         :since:     NOLA.1 (7.1.14.1)
         """
-        self._transfer_file_to_device(file_name=file_name, file_data=file_data)
+        try:
+            self._transfer_file_to_device(file_name=file_name, file_data=file_data)
+        except Exception as e:
+            self._raise_device_error(f"Write file '{file_name}'", e)
 
     def _load_file(self, file_name: str):
         """
@@ -406,29 +380,62 @@ class Fanuc(AbstractDevice):
     # ############################################################################## #
     # INTERFACE HELPER METHODS
     # ############################################################################## #
+    def _connect(self) -> None:
+        """HTTP is per request: this only creates the session (no network I/O)."""
+        if self._connected and self.client is not None:
+            return
+        if self.client is None:
+            self.client = Session()
+        self._connected = True
+
+    def _disconnect(self) -> None:
+        try:
+            if self.client is not None:
+                self.client.close()
+        finally:
+            self.client = None
+            self._connected = False
+
+    def _ensure_connected(self) -> None:
+        if not self._connected or self.client is None:
+            self._connect()
+
     def _send_request(self, req: Request):
         """
         Method to send a message to the Flexxbotics Karel Server on the FANUC Robot
 
         :param: message
 
-        :return:    success boolean
+        :return:    True; raises ServiceUnavailableException when the robot does not respond
 
         :author:    tylerjm@flexxbotics.com
         :author:    cadenc@flexxbotics.com
         :since:     NOLA.1 (7.1.14.1)
         """
+        self._ensure_connected()
         try:
             prepped_req = req.prepare()
             self.response = self.client.send(request=prepped_req)
             self._info("Response Text: " + self.response.text)
         except Exception as e:
-            self._info(message=str(e))
-            self._error(message="Error sending message to FANUC Robot")
-            self._error(message=str(e))
-            return False
+            self._error(message="Error sending message to FANUC Robot: " + str(e))
+            raise ServiceUnavailableException(f"FANUC Robot did not respond ({e})") from e
 
         return True
+
+    def _response_body(self):
+        """The last reply's body: parsed JSON when it is JSON, otherwise the text."""
+        try:
+            return self.response.json()
+        except ValueError:
+            return self.response.text
+
+    @staticmethod
+    def _reply_to_str(reply) -> str:
+        """A Karel JSON reply as a plain string: its "value" field when it has one, else the reply as JSON."""
+        if isinstance(reply, dict) and "value" in reply:
+            reply = reply["value"]
+        return reply if isinstance(reply, str) else json.dumps(reply, default=str)
 
     def _convert_hms_string_to_microseconds(self, hms_time_string):
         """
@@ -592,17 +599,13 @@ class Fanuc(AbstractDevice):
         )
         self._info("Request: " + URL)
         send_command_req = Request("GET", URL)
-        try:
-            if self._send_request(req=send_command_req):
-                variable_response = self.response.json()
-                self._info(message="Variable Response: ")
-                self._info(message=variable_response)
-            else:
-                self._info(message="Send request failed")
-                raise Exception("Error returned from FANUC while getting variable... ")
-
-        except Exception as e:
-            raise Exception(str(e))
+        if self._send_request(req=send_command_req):
+            variable_response = self.response.json()
+            self._info(message="Variable Response: ")
+            self._info(message=variable_response)
+        else:
+            self._info(message="Send request failed")
+            raise Exception("Error returned from FANUC while getting variable... ")
 
         return variable_response
 
@@ -648,9 +651,8 @@ class Fanuc(AbstractDevice):
             os.remove(program_file_path)
             self._info("transfer program file complete")
         except Exception as e:
-            self._set_status(value="ROBOT_DISCONNECTED")
             self._error(str(e))
-            raise Exception(str(e))
+            raise
 
         return file_data
 
@@ -676,12 +678,12 @@ class Fanuc(AbstractDevice):
                     "lftp",
                     "-c",
                     "open "
-                    + self.targetFTPpath
-                    + self.programPath
+                    + self._targetFTPpath
+                    + self._programPath
                     + " --user "
-                    + self.username
+                    + self._username
                     + " --password "
-                    + self.pwd
+                    + self._pwd
                     + "; GET "
                     + file_name
                     + " -o "
@@ -696,9 +698,8 @@ class Fanuc(AbstractDevice):
             os.remove(program_file_path)
             return data
         except Exception as e:
-            self._set_status(value="ROBOT_DISCONNECTED")
             self._error(str(e))
-            raise Exception(str(e))
+            raise
 
     def _toggle_stack_light(self, status):
         if status == "RUNNING":
@@ -738,3 +739,72 @@ class Fanuc(AbstractDevice):
                                                     values=[0])
             self._device_service.set_digital_output(device_id=self.wago_id, start=self.CAROUSEL_RED_STACK_LIGHT,
                                                     values=[1])
+
+    # ############################################################################## #
+    # STANDARD HELPERS (identical in every transformer)
+    # ############################################################################## #
+
+    def _execute_command(self, command) -> str:
+        """
+        Legacy command path, used by Edge HMI control buttons
+        (POST /devices/<id>/execute_command). Hands off to _execute_command_v2.
+        commandJson may be {"command": "x", "args": {...}} or {"command": "x", <args>}.
+        """
+        raw = command.get("commandJson") or "{}"
+        command_json = json.loads(raw) if isinstance(raw, str) else raw
+        args = command_json.get("args")
+        if not isinstance(args, dict):
+            args = {k: v for k, v in command_json.items() if k != "command"}
+        return self._execute_command_v2(command_json.get("command", ""), json.dumps(args))
+
+    @staticmethod
+    def _parse_args(command_args) -> dict:
+        """
+        Parse command_args (the raw request body). Accepts empty, a JSON object, or the
+        documented wrapper {"value": "<JSON object string>"}. The wrapper is only unwrapped
+        when "value" is the only key, so a real "value" arg is left alone.
+        """
+        if not command_args:
+            return {}
+        try:
+            args = json.loads(command_args) if isinstance(command_args, (str, bytes)) else command_args
+            if isinstance(args, dict) and list(args) == ["value"]:
+                inner = args["value"]
+                if isinstance(inner, str) and inner.strip().startswith("{"):
+                    inner = json.loads(inner)
+                if isinstance(inner, dict):
+                    return inner
+        except ValueError as e:
+            raise BadRequestException(f"Command args are not valid JSON: {e}")
+        if not isinstance(args, dict):
+            raise BadRequestException("Command args must be a JSON object")
+        return args
+
+    @staticmethod
+    def _require(args: dict, key: str):
+        """Return args[key], or raise BadRequestException (HTTP 400) when it is missing or blank."""
+        if args.get(key) in (None, ""):
+            raise BadRequestException(f"Missing required arg '{key}'")
+        return args[key]
+
+    @staticmethod
+    def _as_bool(value, default: bool = False) -> bool:
+        """metaData / arg booleans: accepts True/False, "true"/"false" (any case), "1"/"0", "yes"/"no"."""
+        if isinstance(value, bool):
+            return value
+        if value is None or str(value).strip() == "":
+            return default
+        return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+    def _raise_device_error(self, action: str, error: Exception):
+        """
+        Re-raise a failed device call as the runtime exception the API turns into an HTTP error:
+        runtime/HTTP exceptions pass through unchanged; network errors -> 503 (and the transformer
+        is marked disconnected so the next call reconnects); anything else -> 500.
+        """
+        if isinstance(error, (FlexxCoreException, HTTPException)):
+            raise error
+        if isinstance(error, (OSError, TimeoutError, ConnectionError)):
+            self._connected = False
+            raise ServiceUnavailableException(f"{action}: device did not respond ({error})") from error
+        raise ServerErrorException(f"{action} failed: {error}") from error

@@ -2,6 +2,8 @@
   "_class": "YaskawaMP2600ModbusTCP",
   "transformer": "YaskawaMP2600ModbusTCP",
   "commands": {
+    "connect": {},
+    "disconnect": {},
     "set_carousel_index": {
       "index": ""
     }

@@ -5,6 +5,16 @@
   },
   "metaData": {
     "ip_address": "",
-    "port": ""
+    "port": "",
+    "address": "",
+    "scheme": "http",
+    "timeout": "2.0",
+    "retry": "2",
+    "retry_interval": "0.1",
+    "auto_connect": "true",
+    "health_path": "",
+    "username": "",
+    "password": "",
+    "token": ""
   }
 }

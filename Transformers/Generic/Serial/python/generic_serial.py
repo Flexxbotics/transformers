@@ -19,8 +19,16 @@ import json
 import base64
 from typing import List, Optional
 
+from werkzeug.exceptions import HTTPException
+
 from data_models.device import Device
 from transformers.abstract_device import AbstractDevice
+from exceptions.flexxCoreExceptions import (
+    FlexxCoreException,
+    BadRequestException,
+    ServerErrorException,
+    ServiceUnavailableException,
+)
 from protocols.serial import Serial
 
 
@@ -86,6 +94,15 @@ class GenericSerial(AbstractDevice):
       tune down for faster devices.
     * Hardware flow control (rtscts / dsrdtr) should match the device's
       cable wiring.  Most modern devices work with both "false".
+
+    Errors
+    ------
+    Failures raise the runtime's exceptions, which the API returns as HTTP
+    errors carrying the message: BadRequestException (400) for bad args or an
+    unknown command, ServiceUnavailableException (503) when the port cannot be
+    opened or the send/receive fails, ServerErrorException (500) for anything
+    else.  _read_status never raises (it returns "ERROR"), and neither does
+    _read_interval_data.
     """
 
     def __init__(self, device: Device):
@@ -127,23 +144,18 @@ class GenericSerial(AbstractDevice):
         from protocols.serial import ParityType
         self._parity_char = ParityType.PARITY_NONE.get_parity(self.parity)
 
+        self._connected = False
         self.status = "Transformer Initiated"
 
     def __del__(self):
-        pass
+        try:
+            self._disconnect()
+        except Exception:
+            pass
 
     # ############################################################################## #
     # DEVICE COMMUNICATION METHODS
     # ############################################################################## #
-
-    def _execute_command(self, command: str) -> str:
-        """Legacy v1 entry point — delegates to _execute_command_v2."""
-        command_string = command["commandJson"]
-        command_json   = json.loads(command_string)
-        command_name   = command_json.get("command", "")
-        command_args   = json.dumps({k: v for k, v in command_json.items() if k != "command"})
-        self._info(message=f"Sending command: {command_string}")
-        return self._execute_command_v2(command_name, command_args)
 
     def _execute_command_v2(self, command_name: str, command_args: str) -> str:
         """
@@ -172,32 +184,32 @@ class GenericSerial(AbstractDevice):
             Useful for streaming devices that push data continuously.
             Args: buffer_size (int, optional)
             Returns: {"status": "ok", "response": "..."}
+
+        Errors raise: 400 for missing/invalid args or an unknown command,
+        503 when the port cannot be opened or the send/receive fails,
+        500 otherwise.
         """
-        args = json.loads(command_args) if command_args else {}
+        args = self._parse_args(command_args)
         self._info(message=f"Sending command: {command_name}")
 
         try:
             if command_name == "connect":
-                client = self._make_client()
-                rc = client.connect()
-                client.disconnect()
-                connected = (rc == 0)
+                self._connect()
                 return json.dumps({
-                    "status": "ok" if connected else "error",
-                    "connected": connected,
+                    "status": "ok",
+                    "connected": True,
                     "port": self.port,
                 })
 
             if command_name == "disconnect":
+                self._disconnect()
                 return json.dumps({"status": "ok", "connected": False})
 
             if command_name == "send":
-                raw_cmd    = str(args.get("command", ""))
+                raw_cmd    = str(self._require(args, "command"))
                 terminator = args.get("terminator", self.command_terminator)
-                resp_time  = float(args.get("response_time", self.response_time))
-                buf_size   = int(args.get("buffer_size", self.buffer_size))
-                if not raw_cmd:
-                    return self._err("Missing required field: command")
+                resp_time  = float(args.get("response_time") or self.response_time)
+                buf_size   = int(args.get("buffer_size") or self.buffer_size)
                 response = self._send(raw_cmd + terminator, resp_time, buf_size)
                 return json.dumps({
                     "status": "ok",
@@ -206,21 +218,27 @@ class GenericSerial(AbstractDevice):
                 })
 
             if command_name == "receive":
-                buf_size = int(args.get("buffer_size", self.buffer_size))
+                buf_size = int(args.get("buffer_size") or self.buffer_size)
                 client = self._make_client()
                 rc = client.connect()
                 if rc != 0:
-                    return self._err(f"Could not open port {self.port}")
+                    raise ServiceUnavailableException(
+                        f"GenericSerial: could not open port {self.port}"
+                    )
                 raw = client.receive(buffer_size=buf_size)
                 client.disconnect()
+                if raw is None:
+                    # Serial.receive() returns None when the read failed.
+                    raise ServiceUnavailableException(
+                        f"GenericSerial: read from port {self.port} failed"
+                    )
                 response = self._join_response(raw)
                 return json.dumps({"status": "ok", "response": response})
 
-            return self._err(f"Unknown command: '{command_name}'")
-
         except Exception as e:
-            self._error(message=f"Command '{command_name}' failed: {e}")
-            return self._err(str(e))
+            self._raise_device_error(f"Command '{command_name}'", e)
+
+        raise BadRequestException(f"Unknown command '{command_name}'")
 
     def _read_interval_data(self) -> str:
         """
@@ -276,8 +294,9 @@ class GenericSerial(AbstractDevice):
 
     def _read_variable(self, variable_name: str, function: str = None) -> str:
         """
-        Send variable_name as the serial command and return the response.
-        metaData.command_terminator is appended automatically.
+        Send variable_name as the serial command and return the response as a
+        plain string.  metaData.command_terminator is appended automatically.
+        Raises on failure (503 when the send/receive fails, 500 otherwise).
         """
         try:
             return self._send(
@@ -286,23 +305,22 @@ class GenericSerial(AbstractDevice):
                 self.buffer_size,
             )
         except Exception as e:
-            self._error(message=f"Read variable '{variable_name}' failed: {e}")
-            return ""
+            self._raise_device_error(f"Read variable '{variable_name}'", e)
 
     def _write_variable(self, variable_name: str, variable_value: str,
                         function: str = None) -> str:
         """
         Format metaData.write_template with {name} and {value}, then send it.
         metaData.command_terminator is appended automatically.
-        Returns the device response.
+        Returns the device response.  Raises on failure (503 when the
+        send/receive fails, 500 otherwise).
         """
         try:
             cmd = self.write_template.format(name=variable_name, value=variable_value)
             return self._send(cmd + self.command_terminator,
                               self.response_time, self.buffer_size)
         except Exception as e:
-            self._error(message=f"Write variable '{variable_name}' failed: {e}")
-            return ""
+            self._raise_device_error(f"Write variable '{variable_name}'", e)
 
     def _read_parameter(self, parameter_name: str, function: str = None) -> str:
         return self._read_variable(parameter_name, function)
@@ -327,6 +345,31 @@ class GenericSerial(AbstractDevice):
     # INTERFACE HELPER METHODS
     # ############################################################################## #
 
+    def _connect(self) -> None:
+        """
+        Serial ports are opened per call by _send, so nothing is held open.
+        "Connected" means the port could be opened: open it once and close it
+        again.  Raises ServiceUnavailableException (503) when it can't.
+        """
+        if self._connected:
+            return
+        client = self._make_client()
+        rc = client.connect()
+        client.disconnect()
+        if rc != 0:
+            raise ServiceUnavailableException(
+                f"GenericSerial: could not open port {self.port}"
+            )
+        self._connected = True
+
+    def _disconnect(self) -> None:
+        """Nothing is held open between calls; just clear the flag. Safe to call twice."""
+        self._connected = False
+
+    def _ensure_connected(self) -> None:
+        if not self._connected:
+            self._connect()
+
     def _make_client(self) -> Serial:
         """Create a configured Serial protocol instance."""
         return Serial(
@@ -346,6 +389,8 @@ class GenericSerial(AbstractDevice):
         Open the serial port, send data, receive the response, then close.
         Serial.send() handles the connect/disconnect lifecycle internally.
         Serial.receive() returns a list split on commas; join it back to a string.
+        Serial.send() reports any failure as -1 (or None when the read failed);
+        that raises ServiceUnavailableException instead of coming back as a value.
         """
         client = self._make_client()
         raw = client.send(
@@ -354,6 +399,10 @@ class GenericSerial(AbstractDevice):
             encoding=self.encoding,
             response_time=response_time,
         )
+        if raw is None or raw == -1:
+            raise ServiceUnavailableException(
+                f"GenericSerial: send/receive on port {self.port} failed"
+            )
         return self._join_response(raw)
 
     @staticmethod
@@ -366,9 +415,71 @@ class GenericSerial(AbstractDevice):
             return ",".join(str(item) for item in raw)
         return str(raw) if raw is not None else ""
 
-    def _err(self, message: str) -> str:
+    # ############################################################################## #
+    # STANDARD HELPERS (identical in every transformer)
+    # ############################################################################## #
+
+    def _execute_command(self, command) -> str:
+        """
+        Legacy command path, used by Edge HMI control buttons
+        (POST /devices/<id>/execute_command). Hands off to _execute_command_v2.
+        commandJson may be {"command": "x", "args": {...}} or {"command": "x", <args>}.
+        """
+        raw = command.get("commandJson") or "{}"
+        command_json = json.loads(raw) if isinstance(raw, str) else raw
+        args = command_json.get("args")
+        if not isinstance(args, dict):
+            args = {k: v for k, v in command_json.items() if k != "command"}
+        return self._execute_command_v2(command_json.get("command", ""), json.dumps(args))
+
+    @staticmethod
+    def _parse_args(command_args) -> dict:
+        """
+        Parse command_args (the raw request body). Accepts empty, a JSON object, or the
+        documented wrapper {"value": "<JSON object string>"}. The wrapper is only unwrapped
+        when "value" is the only key, so a real "value" arg is left alone.
+        """
+        if not command_args:
+            return {}
         try:
-            self._error(message=message)
-        except Exception:
-            pass
-        return json.dumps({"status": "error", "message": str(message)}, default=str)
+            args = json.loads(command_args) if isinstance(command_args, (str, bytes)) else command_args
+            if isinstance(args, dict) and list(args) == ["value"]:
+                inner = args["value"]
+                if isinstance(inner, str) and inner.strip().startswith("{"):
+                    inner = json.loads(inner)
+                if isinstance(inner, dict):
+                    return inner
+        except ValueError as e:
+            raise BadRequestException(f"Command args are not valid JSON: {e}")
+        if not isinstance(args, dict):
+            raise BadRequestException("Command args must be a JSON object")
+        return args
+
+    @staticmethod
+    def _require(args: dict, key: str):
+        """Return args[key], or raise BadRequestException (HTTP 400) when it is missing or blank."""
+        if args.get(key) in (None, ""):
+            raise BadRequestException(f"Missing required arg '{key}'")
+        return args[key]
+
+    @staticmethod
+    def _as_bool(value, default: bool = False) -> bool:
+        """metaData / arg booleans: accepts True/False, "true"/"false" (any case), "1"/"0", "yes"/"no"."""
+        if isinstance(value, bool):
+            return value
+        if value is None or str(value).strip() == "":
+            return default
+        return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+    def _raise_device_error(self, action: str, error: Exception):
+        """
+        Re-raise a failed device call as the runtime exception the API turns into an HTTP error:
+        runtime/HTTP exceptions pass through unchanged; network errors -> 503 (and the transformer
+        is marked disconnected so the next call reconnects); anything else -> 500.
+        """
+        if isinstance(error, (FlexxCoreException, HTTPException)):
+            raise error
+        if isinstance(error, (OSError, TimeoutError, ConnectionError)):
+            self._connected = False
+            raise ServiceUnavailableException(f"{action}: device did not respond ({error})") from error
+        raise ServerErrorException(f"{action} failed: {error}") from error

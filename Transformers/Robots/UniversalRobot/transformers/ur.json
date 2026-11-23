@@ -2,6 +2,8 @@
   "_class": "UR",
   "transformer": "UR",
   "commands": {
+    "connect": {},
+    "disconnect": {},
     "play_program": {
       "arg": ""
     },
@@ -18,6 +20,7 @@
   },
   "metaData": {
     "ip_address": "",
-    "port": "49495"
+    "port": "49495",
+    "timeout": "3"
   }
 }

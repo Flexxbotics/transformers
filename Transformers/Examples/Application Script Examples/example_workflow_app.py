@@ -24,6 +24,7 @@ from ttkbootstrap.constants import *
 import tkinter.font as tkfont
 from tkinter import PhotoImage
 import time
+import json
 import requests
 
 
@@ -548,12 +549,12 @@ class FlexxTorqueWorkflowApp:
     def check_torque_complete(self):
         torque_status = self.client.read_status(device_id=self.torque_controller_id).text.strip()
         print("Torque status: " + torque_status)
-        current_tool = self.client.execute_command(device_id=self.torque_controller_id, command_name="GET_CURRENT_TOOL",
-                                                   args={}).text.strip().strip('"')
-        batch_counter = self.client.execute_command(device_id=self.torque_controller_id, command_name="READ_BATCH_COUNTER",
-                                                   args={}).text.strip().strip('"')
-        current_batch_size = self.client.execute_command(device_id=self.torque_controller_id, command_name="READ_CURRENT_BATCH_SIZE",
-                                                   args={}).text.strip().strip('"')
+        current_tool = json.loads(self.client.execute_command(device_id=self.torque_controller_id, command_name="GET_CURRENT_TOOL",
+                                                   args={}).text)["value"]
+        batch_counter = json.loads(self.client.execute_command(device_id=self.torque_controller_id, command_name="READ_BATCH_COUNTER",
+                                                   args={}).text)["value"]
+        current_batch_size = json.loads(self.client.execute_command(device_id=self.torque_controller_id, command_name="READ_CURRENT_BATCH_SIZE",
+                                                   args={}).text)["value"]
 
         if current_tool == "0001":
             current_tool = "20 ft/lb"

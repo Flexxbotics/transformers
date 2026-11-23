@@ -15,9 +15,26 @@
 """
 import json
 import base64
+import importlib
+from werkzeug.exceptions import HTTPException
 from data_models.device import Device
 from transformers.abstract_device import AbstractDevice
-from protocols.allen_bradley_eip_logix import EIPLogix, EIPWrite
+from exceptions.flexxCoreExceptions import (
+    FlexxCoreException,
+    BadRequestException,
+    ServerErrorException,
+    ServiceUnavailableException,
+)
+# The protocol file is protocols/allen_bradley_eip-logix.py (hyphen) in this repo, in the runtime,
+# and in FlexxControl's built-in protocol list, so a plain "from ... import" can't reach it.
+# importlib takes the name as a string. The underscore name is tried first in case the file is
+# ever renamed.
+try:
+    _eip_logix = importlib.import_module("protocols.allen_bradley_eip_logix")
+except ModuleNotFoundError:
+    _eip_logix = importlib.import_module("protocols.allen_bradley_eip-logix")
+EIPLogix = _eip_logix.EIPLogix
+EIPWrite = _eip_logix.EIPWrite
 
 
 class AllenBradleyLogix(AbstractDevice):
@@ -32,7 +49,7 @@ class AllenBradleyLogix(AbstractDevice):
       CompactLogix 5380  : 5069-L306ER/L310ER/L320ER/L330ER — no slot needed
 
     Connection parameters (all in metaData):
-      ip_address   : PLC IP address
+      ip_address   : PLC IP address (required)
       slot         : CPU backplane slot (required for ControlLogix/GuardLogix; omit for CompactLogix)
       timeout      : connection timeout in seconds (default 2.0)
       retry        : connection retry attempts (default 2)
@@ -64,6 +81,15 @@ class AllenBradleyLogix(AbstractDevice):
     * **BOOL array elements**: Addressed as "BoolArray[0]", not bit-level offsets.
     * **Run/Program mode writes**: Tags can be read in both Run and Program mode,
       but write access to some tags may require the controller to be in Run mode.
+
+    Errors
+    ------
+    Failures raise the runtime's exceptions, which the API returns as HTTP
+    errors carrying the message: BadRequestException (400) for bad args or an
+    unknown command, ServiceUnavailableException (503) when the PLC does not
+    respond, ServerErrorException (500) for anything else, including a tag
+    read or write the PLC rejected.  _read_status never raises (it returns
+    "ERROR"), and neither does _read_interval_data.
     """
 
     def __init__(self, device: Device):
@@ -79,6 +105,10 @@ class AllenBradleyLogix(AbstractDevice):
         raw_slot = self.meta_data.get("slot", "")
         self.slot = int(raw_slot) if str(raw_slot).strip() != "" else None
 
+        if not self.ip_address:
+            raise ValueError("AllenBradleyLogix: metaData must contain 'ip_address'")
+
+        # Creating the client does not touch the network; it connects on first use.
         self._client = EIPLogix(
             ip_address=self.ip_address,
             timeout=self.timeout,
@@ -86,27 +116,19 @@ class AllenBradleyLogix(AbstractDevice):
             slot=self.slot,
             auto_connect=True,
         )
+        self._connected = False
 
         self.status = "transformer Initiated"
 
     def __del__(self):
         try:
-            self._client.disconnect()
+            self._disconnect()
         except Exception:
             pass
 
     # ############################################################################## #
     # DEVICE COMMUNICATION METHODS
     # ############################################################################## #
-
-    def _execute_command(self, command: str) -> str:
-        """Legacy v1 interface — delegates to _execute_command_v2."""
-        command_string = command["commandJson"]
-        command_json   = json.loads(command_string)
-        command_name   = command_json.get("command", "")
-        command_args   = json.dumps({k: v for k, v in command_json.items() if k != "command"})
-        self._info(message=f"Sending command: {command_string}")
-        return self._execute_command_v2(command_name, command_args)
 
     def _execute_command_v2(self, command_name: str, command_args: str) -> str:
         """
@@ -116,9 +138,11 @@ class AllenBradleyLogix(AbstractDevice):
         ------------------
         connect
             Explicitly open EtherNet/IP connection.
+            Returns: {"status": "ok", "connected": true}
 
         disconnect
             Close EtherNet/IP connection.
+            Returns: {"status": "ok", "connected": false}
 
         read_tag
             Read a single controller or program tag.
@@ -144,40 +168,51 @@ class AllenBradleyLogix(AbstractDevice):
             Retrieve the controller tag list (controller-scoped tags only).
             Args: prefix (str, optional) — filter tags starting with this string
             Returns: {"tags": ["TagA", "TagB", ...]}
+
+        Errors raise: 400 for missing/invalid args or an unknown command,
+        503 when the PLC does not respond, 500 otherwise (including a tag
+        read or write the PLC rejected).
         """
-        args = json.loads(command_args) if command_args else {}
+        args = self._parse_args(command_args)
         self._info(message=f"Sending command: {command_name}")
 
         try:
             if command_name == "connect":
-                rc = self._client.connect()
-                return json.dumps({"status": "ok" if rc == 0 else "error", "rc": rc})
+                self._connect()
+                return json.dumps({"status": "ok", "connected": True})
 
             if command_name == "disconnect":
-                rc = self._client.disconnect()
-                return json.dumps({"status": "ok" if rc == 0 else "error", "rc": rc})
+                self._disconnect()
+                return json.dumps({"status": "ok", "connected": False})
 
             if command_name == "read_tag":
-                tag   = str(args["tag"])
-                value = self._client.read_tag(tag)
+                tag   = str(self._require(args, "tag"))
+                value = self._read_tag(tag)
                 return json.dumps({"status": "ok", "tag": tag, "value": value},
                                   default=str)
 
             if command_name == "read_tags":
-                tags   = [str(t) for t in args["tags"]]
+                tags   = [str(t) for t in self._require(args, "tags")]
+                self._ensure_connected()
                 result = self._client.read_tags(tags)
                 return json.dumps({"status": "ok", "tags": result}, default=str)
 
             if command_name == "write_tag":
-                tag   = str(args["tag"])
+                tag   = str(self._require(args, "tag"))
+                if "value" not in args:
+                    raise BadRequestException("Missing required arg 'value'")
                 value = args["value"]
-                self._client.write_tag(tag, value)
+                self._write_tag(tag, value)
                 return json.dumps({"status": "ok", "tag": tag, "value": value},
                                   default=str)
 
             if command_name == "write_tags":
-                writes = [(str(w["tag"]), w["value"]) for w in args["writes"]]
-                self._client.write_tags(writes)
+                try:
+                    writes = [(str(w["tag"]), w["value"]) for w in self._require(args, "writes")]
+                except (KeyError, TypeError) as e:
+                    raise BadRequestException(
+                        f"'writes' must be a list of {{\"tag\": ..., \"value\": ...}} objects ({e})")
+                self._write_tags(writes)
                 results = [{"tag": t, "status": "ok"} for t, _ in writes]
                 return json.dumps({"status": "ok", "writes": results}, default=str)
 
@@ -186,22 +221,26 @@ class AllenBradleyLogix(AbstractDevice):
                 tags   = self._get_tag_list(prefix=prefix)
                 return json.dumps({"status": "ok", "tags": tags}, default=str)
 
-            raise ValueError(f"Unknown command: {command_name}")
-
         except Exception as e:
-            self._error(message=f"Command '{command_name}' failed: {e}")
-            raise Exception(f"Error executing command '{command_name}': {e}")
+            self._raise_device_error(f"Command '{command_name}'", e)
+
+        raise BadRequestException(f"Unknown command '{command_name}'")
 
     def _read_interval_data(self) -> str:
         """
         Periodic poll. Reads metaData.status_tag if configured; otherwise
         returns current connection status without a PLC round-trip.
+        Never raises.
         """
-        if self.status_tag:
-            return self._execute_command_v2(
-                "read_tag", json.dumps({"tag": self.status_tag})
-            )
-        return json.dumps({"status": self.status})
+        try:
+            if self.status_tag:
+                value = self._read_tag(self.status_tag)
+                return json.dumps({"status": "ok", "tag": self.status_tag, "value": value},
+                                  default=str)
+            return json.dumps({"status": self.status})
+        except Exception as e:
+            self._error(message=f"Interval read failed: {e}")
+            return json.dumps({"status": "ERROR"})
 
     def _read_status(self, function: str = None) -> str:
         """
@@ -217,12 +256,16 @@ class AllenBradleyLogix(AbstractDevice):
         """
         try:
             if self.status_tag:
-                self._client.read_tag(self.status_tag)
+                self._read_tag(self.status_tag)
             else:
-                self._client.connect()
+                # Re-open the session each poll (as before) so an offline PLC shows as ERROR;
+                # _connect closes the previous session first.
+                self._connected = False
+                self._connect()
             self.status = "RUNNING"
         except Exception as e:
             self._error(message=f"Status check failed: {e}")
+            self._connected = False
             self.status = "ERROR"
         return self.status
 
@@ -230,27 +273,28 @@ class AllenBradleyLogix(AbstractDevice):
         """
         Read a tag by name.  variable_name is a Logix tag string
         e.g. "ConveyorRunning", "Drive.Speed", "Program:Main.Counter".
+        Returns the value as a plain string.  Raises on failure (503 when the
+        PLC does not respond, 500 when the read fails).
         """
         try:
-            value = self._client.read_tag(variable_name)
-            return str(value) if value is not None else ""
+            return str(self._read_tag(variable_name))
         except Exception as e:
-            self._error(message=f"Read variable '{variable_name}' failed: {e}")
-            return ""
+            self._raise_device_error(f"Read variable '{variable_name}'", e)
 
     def _write_variable(self, variable_name: str, variable_value: str,
                         function: str = None) -> str:
         """
         Write a value to a tag.  Attempts to preserve native type by trying
         int → float → string coercion in that order.
+        Returns the written value.  Raises on failure (503 when the PLC does
+        not respond, 500 when the PLC rejects the write).
         """
         try:
             value = self._coerce_value(variable_value)
-            self._client.write_tag(variable_name, value)
+            self._write_tag(variable_name, value)
             return variable_value
         except Exception as e:
-            self._error(message=f"Write variable '{variable_name}' failed: {e}")
-            return ""
+            self._raise_device_error(f"Write variable '{variable_name}'", e)
 
     def _read_parameter(self, parameter_name: str, function: str = None) -> str:
         return self._read_variable(parameter_name, function)
@@ -284,10 +328,10 @@ class AllenBradleyLogix(AbstractDevice):
     def _get_tag_list(self, prefix: str = "") -> list:
         """
         Return controller-scoped tag names from the PLC.
-        Filtered by prefix when provided.
+        Filtered by prefix when provided.  Raises on failure.
         """
         try:
-            self._client.connect()
+            self._ensure_connected()
             # pycomm3 LogixDriver exposes get_tag_list() on the underlying driver
             # Access it via the protocol's internal driver through read_tags workaround:
             # We use the driver attribute path that pycomm3 exposes publicly.
@@ -300,8 +344,64 @@ class AllenBradleyLogix(AbstractDevice):
                 names = [n for n in names if n.startswith(prefix)]
             return names
         except Exception as e:
-            self._error(message=f"get_tag_list failed: {e}")
-            return []
+            self._raise_device_error("Get tag list", e)
+
+    def _read_tag(self, tag: str):
+        """
+        Read one tag and return its value.  pycomm3 reports a failed read as a
+        value of None instead of raising, so None is treated as a failed read.
+        """
+        self._ensure_connected()
+        value = self._client.read_tag(tag)
+        if value is None:
+            raise ServerErrorException(f"Read tag '{tag}' failed: the PLC returned no value")
+        return value
+
+    def _write_tag(self, tag: str, value) -> None:
+        """Write one tag; raises ServerErrorException when the PLC rejects it."""
+        self._ensure_connected()
+        self._check_write_result(self._client.write_tag(tag, value))
+
+    def _write_tags(self, writes: list) -> None:
+        """Write several (tag, value) pairs in one request; raises if any is rejected."""
+        self._ensure_connected()
+        self._check_write_result(self._client.write_tags(writes))
+
+    @staticmethod
+    def _check_write_result(result) -> None:
+        """
+        pycomm3 reports a failed write in the returned Tag's .error instead of
+        raising.  It returns one Tag for a single write and a list for several
+        (a Tag is a NamedTuple, so only a list is treated as several).
+        """
+        results = result if isinstance(result, list) else [result]
+        errors = [f"{getattr(r, 'tag', '?')}: {r.error}" for r in results if getattr(r, "error", None)]
+        if errors:
+            raise ServerErrorException(f"Write failed: {'; '.join(errors)}")
+
+    def _connect(self) -> None:
+        if self._connected:
+            return
+        self._info(message=f"Connecting to Logix PLC: {self.ip_address}")
+        # connect() replaces the session without closing it; close a stale one first.
+        self._client.disconnect()
+        rc = self._client.connect()
+        if rc != 0:
+            self._connected = False
+            raise ServiceUnavailableException(
+                f"AllenBradleyLogix: connect failed ({self.ip_address})"
+            )
+        self._connected = True
+
+    def _disconnect(self) -> None:
+        try:
+            self._client.disconnect()
+        finally:
+            self._connected = False
+
+    def _ensure_connected(self) -> None:
+        if not self._connected:
+            self._connect()
 
     @staticmethod
     def _coerce_value(raw: str):
@@ -320,3 +420,72 @@ class AllenBradleyLogix(AbstractDevice):
         except ValueError:
             pass
         return raw
+
+    # ############################################################################## #
+    # STANDARD HELPERS (identical in every transformer)
+    # ############################################################################## #
+
+    def _execute_command(self, command) -> str:
+        """
+        Legacy command path, used by Edge HMI control buttons
+        (POST /devices/<id>/execute_command). Hands off to _execute_command_v2.
+        commandJson may be {"command": "x", "args": {...}} or {"command": "x", <args>}.
+        """
+        raw = command.get("commandJson") or "{}"
+        command_json = json.loads(raw) if isinstance(raw, str) else raw
+        args = command_json.get("args")
+        if not isinstance(args, dict):
+            args = {k: v for k, v in command_json.items() if k != "command"}
+        return self._execute_command_v2(command_json.get("command", ""), json.dumps(args))
+
+    @staticmethod
+    def _parse_args(command_args) -> dict:
+        """
+        Parse command_args (the raw request body). Accepts empty, a JSON object, or the
+        documented wrapper {"value": "<JSON object string>"}. The wrapper is only unwrapped
+        when "value" is the only key, so a real "value" arg is left alone.
+        """
+        if not command_args:
+            return {}
+        try:
+            args = json.loads(command_args) if isinstance(command_args, (str, bytes)) else command_args
+            if isinstance(args, dict) and list(args) == ["value"]:
+                inner = args["value"]
+                if isinstance(inner, str) and inner.strip().startswith("{"):
+                    inner = json.loads(inner)
+                if isinstance(inner, dict):
+                    return inner
+        except ValueError as e:
+            raise BadRequestException(f"Command args are not valid JSON: {e}")
+        if not isinstance(args, dict):
+            raise BadRequestException("Command args must be a JSON object")
+        return args
+
+    @staticmethod
+    def _require(args: dict, key: str):
+        """Return args[key], or raise BadRequestException (HTTP 400) when it is missing or blank."""
+        if args.get(key) in (None, ""):
+            raise BadRequestException(f"Missing required arg '{key}'")
+        return args[key]
+
+    @staticmethod
+    def _as_bool(value, default: bool = False) -> bool:
+        """metaData / arg booleans: accepts True/False, "true"/"false" (any case), "1"/"0", "yes"/"no"."""
+        if isinstance(value, bool):
+            return value
+        if value is None or str(value).strip() == "":
+            return default
+        return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+    def _raise_device_error(self, action: str, error: Exception):
+        """
+        Re-raise a failed device call as the runtime exception the API turns into an HTTP error:
+        runtime/HTTP exceptions pass through unchanged; network errors -> 503 (and the transformer
+        is marked disconnected so the next call reconnects); anything else -> 500.
+        """
+        if isinstance(error, (FlexxCoreException, HTTPException)):
+            raise error
+        if isinstance(error, (OSError, TimeoutError, ConnectionError)):
+            self._connected = False
+            raise ServiceUnavailableException(f"{action}: device did not respond ({error})") from error
+        raise ServerErrorException(f"{action} failed: {error}") from error

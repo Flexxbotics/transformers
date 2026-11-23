@@ -33,6 +33,8 @@
     "retry": "2",
     "retry_interval": "0.1",
     "status_symbol": "",
-    "interval_symbols": ""
+    "interval_symbols": "",
+    "address": "",
+    "auto_connect": "true"
   }
 }

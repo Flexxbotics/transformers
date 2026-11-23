@@ -2,11 +2,11 @@
   "_class": "HeidenhainTNC530",
   "transformer": "HeidenhainTNC530",
   "commands": {
-    "": {
-      "": ""
-    }
+    "connect": {},
+    "disconnect": {}
   },
   "metaData": {
-    "ip_address": ""
+    "ip_address": "",
+    "bridge_url": "http://host.docker.internal:7083"
   }
 }

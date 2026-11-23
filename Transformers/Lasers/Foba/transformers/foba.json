@@ -4,7 +4,9 @@
   "commands": {
     "run_program": {
       "program": ""
-    }
+    },
+    "connect": {},
+    "disconnect": {}
   },
   "metaData": {
     "ip_address": "",

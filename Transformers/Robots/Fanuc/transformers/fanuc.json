@@ -2,6 +2,8 @@
   "_class": "Fanuc",
   "transformer": "fanuc",
   "commands": {
+    "connect": {},
+    "disconnect": {},
     "set_digital_output": {
       "output": "",
       "value": false
@@ -24,6 +26,8 @@
   "metaData": {
     "ip_address": "",
     "port": "3080",
-    "ftp_path": ""
+    "ftp_path": "",
+    "ftp_username": "flexxbotics",
+    "ftp_password": "flexxbotics"
   }
 }

@@ -19,15 +19,13 @@ from protocols.tcp import TCP
 import json
 import base64
 from transformers.abstract_device import AbstractDevice
-
-"""
-
-    THIS IS A TEMPLATE. Be wary about making changes directly to it. It is meant to serve as guidance to future
-    device interface developers. Order of operations to use this file should be:
-        1. Make a copy of template.py and rename it as device_interface_name.py.
-        2. Make edits directly in the copied file
-
-"""
+from werkzeug.exceptions import HTTPException
+from exceptions.flexxCoreExceptions import (
+    FlexxCoreException,
+    BadRequestException,
+    ServerErrorException,
+    ServiceUnavailableException,
+)
 
 
 class Hexagon(AbstractDevice):
@@ -43,16 +41,25 @@ class Hexagon(AbstractDevice):
         """
         # Get meta data of the device from its attributes, this contains information such as: ip address, ports, etc
         super().__init__(device)
-        self.meta_data = device.metaData
-        self.address = self.meta_data["ip_address"]
-        self.port = self.meta_data["port"]
+        self.meta_data = device.metaData or {}
+        self.address = self.meta_data.get("ip_address", "")
+        self.port = str(self.meta_data.get("port", ""))
+        if not self.address:
+            raise ValueError("Hexagon: metaData must contain 'ip_address'")
+        if not self.port:
+            raise ValueError("Hexagon: metaData must contain 'port'")
 
-        self.client = TCP(address=self.address, port=self.port)
+        # protocols.tcp.TCP opens and closes a socket on every send(); _connect() creates the client
+        self.client = None
+        self._connected = False
         self.active_program = ""
         self.parameters = {}
 
     def __del__(self):
-        pass
+        try:
+            self._disconnect()
+        except Exception:
+            pass
 
     # ############################################################################## #
     # DEVICE COMMUNICATION METHODS
@@ -61,6 +68,22 @@ class Hexagon(AbstractDevice):
     def _execute_command_v2(self, command_name: str, command_args: str) -> str:
         """
         Executes the command sent to the device.
+
+        Supported commands
+        ------------------
+        connect / disconnect
+            Returns: {"status": "ok", "connected": true|false}
+        delete_programs
+            Returns: {"status": "ok"}
+        pass
+            Returns: {"status": "ok", "value": "<bridge reply>"}
+        clear_parameters
+            Clears the trace fields sent with the next run. Returns: {"status": "ok"}
+        run_program
+            Runs the loaded program. Returns: {"status": "ok", "value": "routineRunning"}
+
+        Errors raise: 400 for an unknown command, 503 when the bridge does not respond,
+        500 otherwise.
 
         :param command_name:
                     the command to be executed
@@ -73,12 +96,17 @@ class Hexagon(AbstractDevice):
         :since:     ODOULS.3 (7.1.15.3)
         """
         # Parse the command from the incoming request
-        args = json.loads(command_args)
-        response = ""
+        args = self._parse_args(command_args)
 
         self._info(message="Sending command: " + command_name)
         try:
-            if command_name == "delete_programs":
+            if command_name == "connect":
+                self._connect()
+                return json.dumps({"status": "ok", "connected": True})
+            elif command_name == "disconnect":
+                self._disconnect()
+                return json.dumps({"status": "ok", "connected": False})
+            elif command_name == "delete_programs":
                 cmm_command = {
                     "type": "delete_programs",
                     "action": "run",
@@ -86,9 +114,10 @@ class Hexagon(AbstractDevice):
                     "traceFields": {}
                 }
                 data = json.dumps(cmm_command)
+                self._ensure_connected()
                 response = self.client.send(data=data, encoding="utf-8", response_time=0.5)
                 self._info(message="Sent command. Returning OK")
-                return "OK"
+                return json.dumps({"status": "ok"})
             elif command_name == "pass":
                 cmm_command = {
                     "type": "pass",
@@ -96,24 +125,23 @@ class Hexagon(AbstractDevice):
                     "traceFields": {}
                 }
                 data = json.dumps(cmm_command)
+                self._ensure_connected()
                 response = self.client.send(data=data, encoding="utf-8", response_time=0.5)
                 self._info(message="Sent command. Returning OK")
-                return str(response)
+                return json.dumps({"status": "ok", "value": str(response)})
             elif command_name == "clear_parameters":
                 self.parameters = {}
-            else:
-                return "Error executing command"
+                return json.dumps({"status": "ok"})
+            elif command_name == "run_program":
+                result = self._run_program()
+                if result != "routineRunning":
+                    raise ServerErrorException(str(result))
+                return json.dumps({"status": "ok", "value": result})
         except Exception as e:
             self._error(message="Failed to send command: " + str(e))
-            raise Exception(
-                "Error when sending command, did not get response from device: "
-                + command_name
-            )
-        finally:
-            pass
+            self._raise_device_error(f"Command '{command_name}'", e)
 
-        self._info(message="Returning Empty Response")
-        return response
+        raise BadRequestException(f"Unknown command '{command_name}'")
 
     def _read_interval_data(self) -> str:
         """
@@ -133,19 +161,21 @@ class Hexagon(AbstractDevice):
         Method to read the status of the device
 
         :param function:
-                    Optional parameter to provide the name of a function to run - string
+                    Ignored
 
-        :return:    status - string
+        :return:    status - "IDLE", "RUNNING", "FAULT", "" for any other bridge status,
+                    or "ERROR" when the bridge cannot be read
 
         :author:    tylerjm@flexxbotics.com
         :since:     ODOULS.3 (7.1.15.3)
         """
         status = ""
-        if function is None:
+        try:
             cmm_command = {
                 "type": "status",
             }
             data = json.dumps(cmm_command)
+            self._ensure_connected()
             result = self.client.send(data=data, encoding="ascii", response_time=0.5)
             cmm_response = json.loads(result)
             cmm_status = cmm_response["status"]
@@ -155,11 +185,10 @@ class Hexagon(AbstractDevice):
                 return "RUNNING"
             elif cmm_status == "error":
                 return "FAULT"
-        elif function == "":  # Some string
-            # Write specific function call to read status
-            pass
-        else:
-            pass
+        except Exception as e:
+            self._error(message=f"Status read failed: {e}")
+            self._connected = False
+            return "ERROR"
 
         return status
 
@@ -168,33 +197,30 @@ class Hexagon(AbstractDevice):
         Method to read the specified variable from the device
 
         :param variable_name:
-                    The name of the variable to read - string
+                    The measurement name to ask the bridge for - string
 
         :param function:
-                    Optional parameter to provide the name of a function to run - string
+                    Ignored
 
-        :return:    value - string
+        :return:    value - string. Raises on failure (503 when the bridge does not respond,
+                    500 otherwise).
 
         :author:    tylerjm@flexxbotics.com
         :since:     ODOULS.3 (7.1.15.3)
         """
-        value = ""
-        if function is None:
+        try:
             cmm_command = {
                 "type": "measurement",
                 "name": variable_name,
             }
             data = json.dumps(cmm_command)
+            self._ensure_connected()
             result = self.client.send(data=data, encoding="utf-8", response_time=0.5)
             cmm_response = json.loads(result)
             value = cmm_response["value"]
-        elif function == "":  # Some string
-            # Write specific function call to read variable
-            pass
-        else:
-            pass
-
-        return str(value)
+            return str(value)
+        except Exception as e:
+            self._raise_device_error(f"Read variable '{variable_name}'", e)
 
     def _run_program(self, function: str = None) -> str:
         """
@@ -217,6 +243,7 @@ class Hexagon(AbstractDevice):
         }
         try:
             data = json.dumps(cmm_command)
+            self._ensure_connected()
             response = self.client.send(data=data, encoding="utf-8", response_time=0.5)
             cmm_response = json.loads(response)
             if cmm_response["status"] == "routineRunning":
@@ -271,23 +298,6 @@ class Hexagon(AbstractDevice):
 
         return self.programs  # TODO is this the actual response object we want?
 
-    def _read_file(self, file_name: str) -> str:
-        """
-        Method to read a file from a device
-
-        :param file_name:
-                    the name of the file to read.
-
-        :return:    the file's data as base64 string.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     KEYSTONE.4 (7.1.11.4)
-        """
-        # Reads the file content off the device
-        file_data = ""
-
-        return base64.b64encode(file_data)
-
     def _write_file(self, file_name: str, file_data: str):
         """
         Method to write a file to a device
@@ -322,6 +332,7 @@ class Hexagon(AbstractDevice):
         }
         try:
             data = json.dumps(cmm_command)
+            self._ensure_connected()
             response = self.client.send(data=data, encoding="utf-8", response_time=0.5)
             return "OK"
 
@@ -340,3 +351,88 @@ class Hexagon(AbstractDevice):
     # any specific functions that are needed to communicate via the transformer. For example,
     # connection methods, read/write methods, specific functions, etc.
     # ############################################################################## #
+
+    def _connect(self) -> None:
+        if self._connected and self.client is not None:
+            return
+        # No probe: protocols.tcp.TCP opens and closes a socket on every send()
+        self.client = TCP(address=self.address, port=self.port)
+        self._connected = True
+
+    def _disconnect(self) -> None:
+        # Nothing is held open between calls; just drop the client
+        self.client = None
+        self._connected = False
+
+    def _ensure_connected(self) -> None:
+        if not self._connected or self.client is None:
+            self._connect()
+
+    # ############################################################################## #
+    # STANDARD HELPERS (identical in every transformer)
+    # ############################################################################## #
+
+    def _execute_command(self, command) -> str:
+        """
+        Legacy command path, used by Edge HMI control buttons
+        (POST /devices/<id>/execute_command). Hands off to _execute_command_v2.
+        commandJson may be {"command": "x", "args": {...}} or {"command": "x", <args>}.
+        """
+        raw = command.get("commandJson") or "{}"
+        command_json = json.loads(raw) if isinstance(raw, str) else raw
+        args = command_json.get("args")
+        if not isinstance(args, dict):
+            args = {k: v for k, v in command_json.items() if k != "command"}
+        return self._execute_command_v2(command_json.get("command", ""), json.dumps(args))
+
+    @staticmethod
+    def _parse_args(command_args) -> dict:
+        """
+        Parse command_args (the raw request body). Accepts empty, a JSON object, or the
+        documented wrapper {"value": "<JSON object string>"}. The wrapper is only unwrapped
+        when "value" is the only key, so a real "value" arg is left alone.
+        """
+        if not command_args:
+            return {}
+        try:
+            args = json.loads(command_args) if isinstance(command_args, (str, bytes)) else command_args
+            if isinstance(args, dict) and list(args) == ["value"]:
+                inner = args["value"]
+                if isinstance(inner, str) and inner.strip().startswith("{"):
+                    inner = json.loads(inner)
+                if isinstance(inner, dict):
+                    return inner
+        except ValueError as e:
+            raise BadRequestException(f"Command args are not valid JSON: {e}")
+        if not isinstance(args, dict):
+            raise BadRequestException("Command args must be a JSON object")
+        return args
+
+    @staticmethod
+    def _require(args: dict, key: str):
+        """Return args[key], or raise BadRequestException (HTTP 400) when it is missing or blank."""
+        if args.get(key) in (None, ""):
+            raise BadRequestException(f"Missing required arg '{key}'")
+        return args[key]
+
+    @staticmethod
+    def _as_bool(value, default: bool = False) -> bool:
+        """metaData / arg booleans: accepts True/False, "true"/"false" (any case), "1"/"0", "yes"/"no"."""
+        if isinstance(value, bool):
+            return value
+        if value is None or str(value).strip() == "":
+            return default
+        return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+    def _raise_device_error(self, action: str, error: Exception):
+        """
+        Re-raise a failed device call as the runtime exception the API turns into an HTTP error:
+        runtime/HTTP exceptions pass through unchanged; network errors -> 503 (and the transformer
+        is marked disconnected so the next call reconnects); anything else -> 500.
+        """
+        if isinstance(error, (FlexxCoreException, HTTPException)):
+            raise error
+        if isinstance(error, (OSError, TimeoutError, ConnectionError)):
+            self._connected = False
+            raise ServiceUnavailableException(f"{action}: device did not respond ({error})") from error
+        raise ServerErrorException(f"{action} failed: {error}") from error

@@ -2,6 +2,8 @@
   "_class": "HaasSerial",
   "transformer": "haas_serial",
   "commands": {
+    "connect": {},
+    "disconnect": {},
     "get_mode": {
       "arg": ""
     },

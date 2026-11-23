@@ -7,6 +7,11 @@
     "ip_address": "",
     "local_ams_net_id": "",
     "ams_net_id": "",
-    "ams_port": "801"
+    "ams_port": "801",
+    "address": "",
+    "timeout": "2.0",
+    "retry": "2",
+    "retry_interval": "0.1",
+    "auto_connect": "true"
   }
 }

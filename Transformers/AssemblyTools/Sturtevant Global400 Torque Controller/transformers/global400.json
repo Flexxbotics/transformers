@@ -10,7 +10,9 @@
     },
     "READ_CURRENT_BATCH_SIZE": {
       "": ""
-    }
+    },
+    "connect": {},
+    "disconnect": {}
   },
   "metaData": {
     "ip_address": "",

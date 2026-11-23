@@ -20,8 +20,16 @@ import json
 import base64
 from typing import List, Optional
 
+from werkzeug.exceptions import HTTPException
+
 from data_models.device import Device
 from transformers.abstract_device import AbstractDevice
+from exceptions.flexxCoreExceptions import (
+    FlexxCoreException,
+    BadRequestException,
+    ServerErrorException,
+    ServiceUnavailableException,
+)
 from protocols.beckhoff_ads_twincat import ADS
 import pyads
 
@@ -88,6 +96,14 @@ class BeckhoffTwinCAT(AbstractDevice):
     * **TwinCAT 3 symbol names**: Symbols are dot-qualified paths as defined in
       the TwinCAT PLC project, e.g. "MAIN.bConveyorRunning", "GVL.nCounter".
       TwinCAT 2 symbols use a flat namespace, e.g. ".ACHSSTATUS".
+
+    Errors
+    ------
+    Failures raise the runtime's exceptions, which the API returns as HTTP
+    errors carrying the message: BadRequestException (400) for bad args or an
+    unknown command, ServiceUnavailableException (503) when the device does not
+    respond, ServerErrorException (500) for anything else.  _read_status never
+    raises, and neither does _read_interval_data.
     """
 
     # ############################################################################## #
@@ -127,7 +143,7 @@ class BeckhoffTwinCAT(AbstractDevice):
             self.timeout = float(self.meta_data.get("timeout", 2.0))
             self.retry = int(self.meta_data.get("retry", 2))
             self.retry_interval = float(self.meta_data.get("retry_interval", 0.1))
-            self.auto_connect = bool(self.meta_data.get("auto_connect", True))
+            self.auto_connect = self._as_bool(self.meta_data.get("auto_connect", True), True)
 
             # Beckhoff client (protocol wrapper)
             self.client: ADS | None = None
@@ -136,7 +152,7 @@ class BeckhoffTwinCAT(AbstractDevice):
             self._connected = False
 
         except Exception as e:
-            self._logger.error(str(e))
+            self._error(message=str(e))
             raise RuntimeError(f"BeckhoffTwinCAT init failed: {e}") from e
 
     def __del__(self):
@@ -161,13 +177,15 @@ class BeckhoffTwinCAT(AbstractDevice):
           - write         (writes an ADS symbol)
           - list_symbols  (enumerates the PLC symbols on the target)
 
-        read command args (JSON inside args["value"]):
+        Args are a JSON object, or the same object wrapped as {"value": "<json>"}.
+
+        read command args:
           {
             "symbol": "MAIN.bConveyorRunning",
             "plc_type": "BOOL"
           }
 
-        write command args (JSON inside args["value"]):
+        write command args:
           {
             "symbol": "MAIN.nSetpoint",
             "value": 42,
@@ -179,10 +197,12 @@ class BeckhoffTwinCAT(AbstractDevice):
             "prefix": "MAIN.",   # optional
             "limit": 200          # optional
           }
+
+        Errors raise: 400 for missing/invalid args or an unknown command,
+        503 when the device does not respond, 500 otherwise.
         """
-        # Parse the command from the incoming request
-        args = json.loads(command_args) if command_args else {}
-        args = json.loads(args["value"]) if isinstance(args, dict) and "value" in args else (args or {})
+        args = self._parse_args(command_args)
+        self._info(message=f"Sending command: {command_name}")
 
         try:
             if command_name == "connect":
@@ -194,59 +214,49 @@ class BeckhoffTwinCAT(AbstractDevice):
                 return json.dumps({"status": "ok", "connected": False})
 
             if command_name == "read":
-                self._ensure_connected()
-                assert self.client is not None
-                symbol = args.get("symbol")
+                symbol = self._require(args, "symbol")
                 plc_type = args.get("plc_type", "INT")
-                if not symbol:
-                    return self._err("Missing required field: symbol")
                 plc_type_val = self._plc_type_from_args(plc_type)
                 if plc_type_val is None:
-                    return self._err(f"Unsupported plc_type: {plc_type}")
-                try:
-                    value = self.client.read(symbol, plc_type=plc_type_val)
-                    return json.dumps({
-                        "status": "ok",
-                        "symbol": symbol,
-                        "plc_type": plc_type,
-                        "value": value
-                    }, default=str)
-                except Exception as e:
-                    return self._err(str(e))
+                    raise BadRequestException(f"Unsupported plc_type: {plc_type}")
+                self._ensure_connected()
+                assert self.client is not None
+                value = self.client.read(symbol, plc_type=plc_type_val)
+                return json.dumps({
+                    "status": "ok",
+                    "symbol": symbol,
+                    "plc_type": plc_type,
+                    "value": value
+                }, default=str)
 
             if command_name == "write":
-                self._ensure_connected()
-                assert self.client is not None
-                symbol = args.get("symbol")
+                symbol = self._require(args, "symbol")
                 value = args.get("value")
+                if value is None:
+                    raise BadRequestException("Missing required arg 'value'")
                 plc_type = args.get("plc_type", "INT")
-                if not symbol:
-                    return self._err("Missing required field: symbol")
                 plc_type_val = self._plc_type_from_args(plc_type)
                 if plc_type_val is None:
-                    return self._err(f"Unsupported plc_type: {plc_type}")
-                try:
-                    self.client.write(symbol, value, plc_type=plc_type_val)
-                    return json.dumps({
-                        "status": "ok",
-                        "symbol": symbol,
-                        "value": value
-                    }, default=str)
-                except Exception as e:
-                    return self._err(str(e))
+                    raise BadRequestException(f"Unsupported plc_type: {plc_type}")
+                self._ensure_connected()
+                assert self.client is not None
+                self.client.write(symbol, value, plc_type=plc_type_val)
+                return json.dumps({
+                    "status": "ok",
+                    "symbol": symbol,
+                    "value": value
+                }, default=str)
 
             if command_name == "list_symbols":
                 prefix = args.get("prefix")
-                limit = int(args.get("limit", 200))
+                limit = int(args.get("limit") or 200)
                 names = self._list_symbols(prefix=prefix, limit=limit)
                 return json.dumps({"status": "ok", "count": len(names), "symbols": names}, default=str)
 
-            # ---- Unknown command ----
-            return "UNKNOWN_COMMAND"
-
         except Exception as e:
-            self._logger.error(str(e))
-            return str(e)
+            self._raise_device_error(f"Command '{command_name}'", e)
+
+        raise BadRequestException(f"Unknown command '{command_name}'")
 
     def _read_interval_data(self) -> str:
         """
@@ -256,9 +266,12 @@ class BeckhoffTwinCAT(AbstractDevice):
         machine-specific subclass should read the PLC symbols it cares about
         here (machine state, active program, part counts, faults) and forward
         them to the run-record / event services, as the Holzman Beckhoff
-        transformer does.
+        transformer does.  Never raises.
         """
-        self._ensure_connected()
+        try:
+            self._ensure_connected()
+        except Exception as e:
+            self._error(message=f"Interval read failed: {e}")
 
     def _read_status(self, function: str = None) -> str:
         """
@@ -295,40 +308,36 @@ class BeckhoffTwinCAT(AbstractDevice):
         """
         Read a PLC symbol by name.  variable_name is the fully-qualified
         TwinCAT symbol path, e.g. "MAIN.bConveyorRunning" or ".ACHSSTATUS".
+        Returns the value as a plain string; `function` is ignored.
+        Raises on failure (503 when the device does not respond, 500 otherwise).
         """
-        value = ""
         try:
-            if function is None:
-                self._ensure_connected()
-                assert self.client is not None
-                # plc_type omitted → the ADS wrapper reads the symbol's declared
-                # type from the PLC (read_by_name auto-detect). Only the command
-                # API, where a caller can name a type, passes an explicit one.
-                value = self.client.read(variable_name)
-                value = str(value) if value is not None else ""
+            self._ensure_connected()
+            assert self.client is not None
+            # plc_type omitted → the ADS wrapper reads the symbol's declared
+            # type from the PLC (read_by_name auto-detect). Only the command
+            # API, where a caller can name a type, passes an explicit one.
+            value = self.client.read(variable_name)
+            return str(value) if value is not None else ""
         except Exception as e:
-            self._logger.error(f"Read variable '{variable_name}' failed: {e}")
-            value = ""
-        return value
+            self._raise_device_error(f"Read variable '{variable_name}'", e)
 
     def _write_variable(self, variable_name: str, variable_value: str, function: str = None) -> str:
         """
         Write a value to a PLC symbol.  Coerces the string value to bool → int →
-        float → str before writing.
+        float → str before writing.  Returns the written value; `function` is
+        ignored.  Raises on failure (503 when the device does not respond, 500
+        otherwise).
         """
-        value = ""
         try:
-            if function is None:
-                self._ensure_connected()
-                assert self.client is not None
-                # plc_type omitted → the ADS wrapper writes using the symbol's
-                # declared type from the PLC (write_by_name auto-detect).
-                self.client.write(variable_name, self._coerce_value(variable_value))
-                value = variable_value
+            self._ensure_connected()
+            assert self.client is not None
+            # plc_type omitted → the ADS wrapper writes using the symbol's
+            # declared type from the PLC (write_by_name auto-detect).
+            self.client.write(variable_name, self._coerce_value(variable_value))
+            return variable_value
         except Exception as e:
-            self._logger.error(f"Write variable '{variable_name}' failed: {e}")
-            value = ""
-        return value
+            self._raise_device_error(f"Write variable '{variable_name}'", e)
 
     def _read_parameter(self, parameter_name: str, function: str = None) -> str:
         return self._read_variable(parameter_name, function)
@@ -339,10 +348,6 @@ class BeckhoffTwinCAT(AbstractDevice):
     def _read_file_names(self) -> list:
         self.programs = []
         return self.programs
-
-    def _read_file(self, file_name: str) -> str:
-        file_data = b""
-        return base64.b64encode(file_data)
 
     def _write_file(self, file_name: str, file_data: str):
         pass
@@ -381,7 +386,7 @@ class BeckhoffTwinCAT(AbstractDevice):
         self._logger.info("Got connection from Beckhoff!")
         if rc != 0:
             self._connected = False
-            raise ConnectionError(
+            raise ServiceUnavailableException(
                 f"BeckhoffTwinCAT: ADS connect failed (ams_net_id={self.ams_net_id}, "
                 f"ams_port={self.ams_port}, ip={self.address})"
             )
@@ -505,19 +510,71 @@ class BeckhoffTwinCAT(AbstractDevice):
             pass
         return raw
 
-    def _err(self, message: str) -> str:
-        """
-        Standardized error response.
-        """
-        try:
-            self._error(message)  # log via AbstractDevice logger
-        except Exception:
-            pass
+    # ############################################################################## #
+    # STANDARD HELPERS (identical in every transformer)
+    # ############################################################################## #
 
-        return json.dumps(
-            {
-                "status": "error",
-                "message": str(message),
-            },
-            default=str,
-        )
+    def _execute_command(self, command) -> str:
+        """
+        Legacy command path, used by Edge HMI control buttons
+        (POST /devices/<id>/execute_command). Hands off to _execute_command_v2.
+        commandJson may be {"command": "x", "args": {...}} or {"command": "x", <args>}.
+        """
+        raw = command.get("commandJson") or "{}"
+        command_json = json.loads(raw) if isinstance(raw, str) else raw
+        args = command_json.get("args")
+        if not isinstance(args, dict):
+            args = {k: v for k, v in command_json.items() if k != "command"}
+        return self._execute_command_v2(command_json.get("command", ""), json.dumps(args))
+
+    @staticmethod
+    def _parse_args(command_args) -> dict:
+        """
+        Parse command_args (the raw request body). Accepts empty, a JSON object, or the
+        documented wrapper {"value": "<JSON object string>"}. The wrapper is only unwrapped
+        when "value" is the only key, so a real "value" arg is left alone.
+        """
+        if not command_args:
+            return {}
+        try:
+            args = json.loads(command_args) if isinstance(command_args, (str, bytes)) else command_args
+            if isinstance(args, dict) and list(args) == ["value"]:
+                inner = args["value"]
+                if isinstance(inner, str) and inner.strip().startswith("{"):
+                    inner = json.loads(inner)
+                if isinstance(inner, dict):
+                    return inner
+        except ValueError as e:
+            raise BadRequestException(f"Command args are not valid JSON: {e}")
+        if not isinstance(args, dict):
+            raise BadRequestException("Command args must be a JSON object")
+        return args
+
+    @staticmethod
+    def _require(args: dict, key: str):
+        """Return args[key], or raise BadRequestException (HTTP 400) when it is missing or blank."""
+        if args.get(key) in (None, ""):
+            raise BadRequestException(f"Missing required arg '{key}'")
+        return args[key]
+
+    @staticmethod
+    def _as_bool(value, default: bool = False) -> bool:
+        """metaData / arg booleans: accepts True/False, "true"/"false" (any case), "1"/"0", "yes"/"no"."""
+        if isinstance(value, bool):
+            return value
+        if value is None or str(value).strip() == "":
+            return default
+        return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+    def _raise_device_error(self, action: str, error: Exception):
+        """
+        Re-raise a failed device call as the runtime exception the API turns into an HTTP error:
+        runtime/HTTP exceptions pass through unchanged; network errors -> 503 (and the transformer
+        is marked disconnected so the next call reconnects); anything else -> 500.
+        """
+        if isinstance(error, (FlexxCoreException, HTTPException)):
+            raise error
+        if isinstance(error, (OSError, TimeoutError, ConnectionError)):
+            self._connected = False
+            raise ServiceUnavailableException(f"{action}: device did not respond ({error})") from error
+        raise ServerErrorException(f"{action} failed: {error}") from error

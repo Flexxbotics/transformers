@@ -1,0 +1,26 @@
+{
+  "_class": "HeidenhainTNC7_Profinet",
+  "transformer": "HeidenhainTNC7_Profinet",
+  "commands": {
+    "connect": {},
+    "disconnect": {},
+    "set_profinet_bit": {
+      "profinet_address": "",
+      "profinet_value": ""
+    },
+    "read_profinet_bit": {
+      "profinet_address": ""
+    },
+    "set_multiple_profinet_bits": {
+      "addresses": [],
+      "values": []
+    }
+  },
+  "metaData": {
+    "plc_ip_address": "",
+    "plc_port": 502,
+    "cnc_ip_address": "",
+    "cnc_number": "",
+    "bridge_url": "http://host.docker.internal:7083"
+  }
+}

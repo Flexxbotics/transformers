@@ -27,11 +27,31 @@ import base64
 import io
 import socket
 from smb.SMBConnection import SMBConnection
+from werkzeug.exceptions import HTTPException
 from transformers.abstract_device import AbstractDevice
+from exceptions.flexxCoreExceptions import (
+    FlexxCoreException,
+    BadRequestException,
+    ServerErrorException,
+    ServiceUnavailableException,
+)
 from flask import current_app, g
 import time
 
 class HaasNextGen(AbstractDevice):
+
+    # Q-command replies: command name -> (expected reply header, index of the value in the reply)
+    _Q_REPLIES = {
+        "get_mode": ("MODE", 1),
+        "get_tool_changes": ("TOOLCHANGES", 1),
+        "get_current_tool_number": ("USINGTOOL", 1),
+        "get_power_time": ("P.O.TIME", 1),
+        "get_motion_time": ("C.S.TIME", 1),
+        "get_last_cycle": ("LASTCYCLE", 1),
+        "get_previous_cycle": ("PREVCYCLE", 1),
+        "get_part_count": ("PROGRAM", 4),
+        "get_active_program": ("PROGRAM", 1),
+    }
 
     def __init__(self, device: Device):
         """
@@ -44,15 +64,23 @@ class HaasNextGen(AbstractDevice):
         """
         # Get meta data of the device from its attributes, this contains information such as: ip address, ports, etc
         super().__init__(device)
-        self.meta_data = device.metaData
-        self.address = self.meta_data["ip_address"]
-        self.port = self.meta_data["port"]
-        self.fileshare_path = self.meta_data["fileshare_path"]
-        self.fileshare_username = self.meta_data["fileshare_username"]
-        self.fileshare_password = self.meta_data["fileshare_password"]
+        self.meta_data = device.metaData or {}
+        self.address = self.meta_data.get("ip_address", "")
+        self.port = str(self.meta_data.get("port", ""))
+        self.fileshare_path = self.meta_data.get("fileshare_path", "")
+        self.fileshare_username = self.meta_data.get("fileshare_username", "")
+        self.fileshare_password = self.meta_data.get("fileshare_password", "")
+        self.mtconnect_port = int(self.meta_data.get("mtconnect_port") or 8082)
         self._logger = current_app.config["logger"]
+        if not self.address:
+            raise ValueError("HaasNextGen: metaData must contain 'ip_address'")
+        if not self.port:
+            raise ValueError("HaasNextGen: metaData must contain 'port'")
 
-        self.client = TCP(address=self.address, port=self.port)
+        # Created by _connect (the TCP client opens a new connection for every send)
+        self.client = None
+        self.mtconnect_client = None
+        self._connected = False
         self.q_commands = {
             "write": "?E",
             "read": "?Q600",
@@ -68,8 +96,6 @@ class HaasNextGen(AbstractDevice):
             "get_active_program": "?Q500"
         }
 
-        self.mtconnect_client = MTConnect(ip_address=self.address, port=8082, path="/current")
-
         self.internal_part_counter = 0
         self.interval_count = 0
         self.internal_last_program = ""
@@ -78,7 +104,10 @@ class HaasNextGen(AbstractDevice):
         self.variables_dictionary = {}
 
     def __del__(self):
-        pass
+        try:
+            self._disconnect()
+        except Exception:
+            pass
 
     # ############################################################################## #
     # DEVICE COMMUNICATION METHODS
@@ -95,71 +124,40 @@ class HaasNextGen(AbstractDevice):
 
         :return:    the response after execution of command.
 
+        Commands (no args): connect, disconnect, and the Q-command reads
+        get_mode, get_tool_changes, get_current_tool_number, get_power_time,
+        get_motion_time, get_last_cycle, get_previous_cycle, get_part_count,
+        get_active_program.
+        Returns: {"status": "ok", "command": "<name>", "value": "<value from the reply>"}
+                 (connect / disconnect: {"status": "ok", "connected": true|false})
+
+        Errors raise: 400 for an unknown command, 503 when the device does not
+        respond, 500 for an unexpected or empty reply.
+
         :author:    tylerjm@flexxbotics.com
         :since:     ODOULS.3 (7.1.15.3)
         """
         # Parse the command from the incoming request
-        args = json.loads(command_args)
-        response = ""
+        args = self._parse_args(command_args)
 
         self._info(message="Sending command: " + command_name)
         try:
-            command = self.q_commands[command_name] + "\r\n"
-            result = self.client.send(data=command, encoding="ascii", response_time=0.5)
-            result = result.split(",")
-            if command_name == "get_mode":
-                expected = "MODE"
-                actual_idx = 0
-                data_idx = 1
-            elif command_name == "get_tool_changes":
-                expected = "TOOLCHANGES"
-                actual_idx = 0
-                data_idx = 1
-            elif command_name == "get_current_tool_number":
-                expected = "USINGTOOL"
-                actual_idx = 0
-                data_idx = 1
-            elif command_name == "get_power_time":
-                expected = "P.O.TIME"
-                actual_idx = 0
-                data_idx = 1
-            elif command_name == "get_motion_time":
-                expected = "C.S.TIME"
-                actual_idx = 0
-                data_idx = 1
-            elif command_name == "get_last_cycle":
-                expected = "LASTCYCLE"
-                actual_idx = 0
-                data_idx = 1
-            elif command_name == "get_previous_cycle":
-                expected = "PREVCYCLE"
-                actual_idx = 0
-                data_idx = 1
-            elif command_name == "get_part_count":
-                expected = "PROGRAM"
-                actual_idx = 0
-                data_idx = 4
-            elif command_name == "get_active_program":
-                expected = "PROGRAM"
-                actual_idx = 0
-                data_idx = 1
-            else:
-                pass
-            response = self._process_response(
-                result=result,
-                expected=expected,
-                actual_idx=actual_idx,
-                data_idx=data_idx
-            )
-        except Exception as e:
-            raise Exception(
-                "Error when sending command, did not get response from device: "
-                + command_name
-            )
-        finally:
-            pass
+            if command_name == "connect":
+                self._connect()
+                return json.dumps({"status": "ok", "connected": True})
 
-        return response
+            if command_name == "disconnect":
+                self._disconnect()
+                return json.dumps({"status": "ok", "connected": False})
+
+            if command_name in self._Q_REPLIES:
+                value = self._query(command_name)
+                return json.dumps({"status": "ok", "command": command_name, "value": value})
+
+        except Exception as e:
+            self._raise_device_error(f"Command '{command_name}'", e)
+
+        raise BadRequestException(f"Unknown command '{command_name}'")
 
     def _read_interval_data(self) -> str:
         """
@@ -172,72 +170,79 @@ class HaasNextGen(AbstractDevice):
 
         :since:     ODOULS.3 (7.1.15.3)
         """
-        # Get the most recent run record
-        run_record: RunRecord = self._run_record_service.get_run_records()[0]
+        try:
+            self._ensure_connected()
 
-        # Get statys
-        status = self._read_status()
+            # Get the most recent run record
+            run_record: RunRecord = self._run_record_service.get_run_records()[0]
 
-        # Get the active program
-        time.sleep(0.5)
-        active_program = self.mtconnect_client.read_tag(tag="ncprog")
-        active_program = active_program[0]["text"].strip(".nc")
-        self._logger.info("Active program: " + active_program)
+            # Get statys
+            status = self._read_status()
 
-        # Reset the part count on a program change
-        if run_record.partNumber != active_program:
-            run_record.partCount = 0
-        else:
-            pass
+            # Get the active program
+            time.sleep(0.5)
+            active_program = self.mtconnect_client.read_tag(tag="ncprog")
+            active_program = active_program[0]["text"].strip(".nc")
+            self._logger.info("Active program: " + active_program)
 
-        # Set the active program on the active run record
-        if active_program != "":
-            run_record.partNumber = active_program
-        else:
-            run_record.partNumber = "NOT_REPORTED"
-        self._run_record_service.update_run_record(run_record=run_record)
+            # Reset the part count on a program change
+            if run_record.partNumber != active_program:
+                run_record.partCount = 0
+            else:
+                pass
 
-        if status != "RUNNING" and status != "IDLE_SPINDLE":
-            # Part count events
-            raw_cnc_count = int(self._execute_command_v2(command_name="get_part_count", command_args="{}"))
-            if self.internal_part_counter == 0:
-                self.internal_part_counter = raw_cnc_count
-            if raw_cnc_count != self.internal_part_counter:
-                # Part count event
-                self._logger.info("Part count detected")
-                event: PartCountEvent = PartCountEvent()
-                event.deviceId = self.device_id
-                self._run_record_service.create_event(event=event)
-                self.internal_part_counter = raw_cnc_count
-                self._logger.info("Part count event complete")
+            # Set the active program on the active run record
+            if active_program != "":
+                run_record.partNumber = active_program
+            else:
+                run_record.partNumber = "NOT_REPORTED"
+            self._run_record_service.update_run_record(run_record=run_record)
 
-        # Variable events approximately every 15 minutes
-        if self.interval_count % 450 == 0:
-            variables: list[AbstractVariable] = self._variable_service.get_variables_by_device_id(device_id=self.device_id)
-            for variable in variables:
-                self._device_service.read_device_variable(device_id=self.device_id, variable_name=variable.machineVariableName)
-                time.sleep(0.2)
+            if status != "RUNNING" and status != "IDLE_SPINDLE":
+                # Part count events
+                raw_cnc_count = int(self._query("get_part_count"))
+                if self.internal_part_counter == 0:
+                    self.internal_part_counter = raw_cnc_count
+                if raw_cnc_count != self.internal_part_counter:
+                    # Part count event
+                    self._logger.info("Part count detected")
+                    event: PartCountEvent = PartCountEvent()
+                    event.deviceId = self.device_id
+                    self._run_record_service.create_event(event=event)
+                    self.internal_part_counter = raw_cnc_count
+                    self._logger.info("Part count event complete")
 
-        self.interval_count += 1
+            # Variable events approximately every 15 minutes
+            if self.interval_count % 450 == 0:
+                variables: list[AbstractVariable] = self._variable_service.get_variables_by_device_id(device_id=self.device_id)
+                for variable in variables:
+                    self._device_service.read_device_variable(device_id=self.device_id, variable_name=variable.machineVariableName)
+                    time.sleep(0.2)
+
+            self.interval_count += 1
+        except Exception as e:
+            self._error(message=f"Interval read failed: {e}")
 
     def _read_status(self, function: str = None) -> str:
         """
         Method to read the status of the device
 
         :param function:
-                    Optional parameter to provide the name of a function to run - string
+                    Ignored.
 
-        :return:    status - string
+        :return:    status - string: RUNNING, IDLE_SPINDLE, NO_DATA, UNKNOWN_HAAS_STATE,
+                    the PROGRAM status field, or the active alarm text; "ERROR" when the
+                    machine cannot be read.
 
         :author:    tylerjm@flexxbotics.com
         :since:     ODOULS.3 (7.1.15.3)
         """
         status = ""
-        tid = getattr(g, 'transaction_id', 'unknown')
-        if function is None:
+        try:
+            tid = getattr(g, 'transaction_id', 'unknown')
             data = self.q_commands["status"] + "\r\n"
             self._logger.debug(f"transaction_id[{tid}] - HaasNextGen - Sending status command: {data}")
-            result = self.client.send(data=data, encoding="ascii", response_time=0.5)
+            result = self._send(data)
             self._logger.debug(f"transaction_id[{tid}] - HaasNextGen - Got status response: {result}")
             result = result.split(",")
             status = self._process_status(result=result)
@@ -285,11 +290,10 @@ class HaasNextGen(AbstractDevice):
             else:
                 status = alarm_status
 
-        elif function == "":  # Some string
-            # Write specific function call to read status
-            pass
-        else:
-            pass
+        except Exception as e:
+            self._error(message=f"Status read failed: {e}")
+            self._connected = False
+            status = "ERROR"
 
         return status
 
@@ -298,22 +302,22 @@ class HaasNextGen(AbstractDevice):
         Method to read the specified variable from the device
 
         :param variable_name:
-                    The name of the variable to read - string
+                    The macro variable number to read (?Q600), e.g. "3027" - string
 
         :param function:
-                    Optional parameter to provide the name of a function to run - string
+                    Ignored.
 
-        :return:    value - string
+        :return:    value - string. Raises on failure.
 
         :author:    tylerjm@flexxbotics.com
         :since:     ODOULS.3 (7.1.15.3)
         """
         value = ""
-        tid = getattr(g, 'transaction_id', 'unknown')
-        if function is None:
+        try:
+            tid = getattr(g, 'transaction_id', 'unknown')
             q_command = self.q_commands["read"] + " " + str(variable_name) + "\r\n"
             self._logger.debug(f"transaction_id[{tid}] - HaasNextGen - Sending macro read command: {q_command}")
-            result = self.client.send(data=q_command, encoding="ascii", response_time=0.5)
+            result = self._send(q_command)
             self._logger.debug(f"transaction_id[{tid}] - HaasNextGen - Got macro response: {result}")
             result = result.split(",")
             value = self._process_response(
@@ -322,11 +326,8 @@ class HaasNextGen(AbstractDevice):
                 actual_idx=0,
                 data_idx=1,
             )
-        elif function == "":  # Some string
-            # Write specific function call to read variable
-            pass
-        else:
-            pass
+        except Exception as e:
+            self._raise_device_error(f"Read variable '{variable_name}'", e)
 
         return value
 
@@ -341,17 +342,17 @@ class HaasNextGen(AbstractDevice):
                     The value of the variable to write - string
 
         :param function:
-                    Optional parameter to provide the name of a function to run - string
+                    Ignored.
 
-        :return:    value - string
+        :return:    value - string: the device's reply ("!"). Raises on failure.
 
         :author:    tylerjm@flexxbotics.com
         :since:     ODOULS.3 (7.1.15.3)
         """
         value = ""
-        if function is None:
+        try:
             q_command = self.q_commands["write"] + str(variable_name) + " " + str(variable_value) + "\r\n"
-            result = self.client.send(data=q_command, encoding="ascii", response_time=0.5)
+            result = self._send(q_command)
             result = result.split(",")
             value = self._process_response(
                 result=result,
@@ -359,11 +360,8 @@ class HaasNextGen(AbstractDevice):
                 actual_idx=0,
                 data_idx=0,
             )
-        elif function == "":  # Some string
-            # Write specific function call to write variable
-            pass
-        else:
-            pass
+        except Exception as e:
+            self._raise_device_error(f"Write variable '{variable_name}'", e)
 
         return value
 
@@ -378,17 +376,17 @@ class HaasNextGen(AbstractDevice):
                     The value of the parameter to write - string
 
         :param function:
-                    Optional parameter to provide the name of a function to run - string
+                    Ignored.
 
-        :return:    value - string
+        :return:    value - string: the device's reply ("!"). Raises on failure.
 
         :author:    tylerjm@flexxbotics.com
         :since:     ODOULS.3 (7.1.15.3)
         """
         value = ""
-        if function is None:
+        try:
             q_command = self.q_commands["write"] + str(parameter_name) + " " + str(parameter_value) + "\r\n"
-            result = self.client.send(data=q_command, encoding="ascii", response_time=0.5)
+            result = self._send(q_command)
             result = result.split(",")
             value = self._process_response(
                 result=result,
@@ -396,11 +394,8 @@ class HaasNextGen(AbstractDevice):
                 actual_idx=0,
                 data_idx=0,
             )
-        elif function == "":  # Some string
-            # Write specific function call to write parameter
-            pass
-        else:
-            pass
+        except Exception as e:
+            self._raise_device_error(f"Write parameter '{parameter_name}'", e)
 
         return value
 
@@ -412,17 +407,17 @@ class HaasNextGen(AbstractDevice):
                     The parameter to write - string
 
         :param function:
-                    Optional parameter to provide the name of a function to run - string
+                    Ignored.
 
-        :return:    value - string
+        :return:    value - string. Raises on failure.
 
         :author:    tylerjm@flexxbotics.com
         :since:     ODOULS.3 (7.1.15.3)
         """
         value = ""
-        if function is None:
+        try:
             q_command = self.q_commands["read"] + " " + str(parameter_name) + "\r\n"
-            result = self.client.send(data=q_command, encoding="ascii", response_time=0.5)
+            result = self._send(q_command)
             result = result.split(",")
             value = self._process_response(
                 result=result,
@@ -430,11 +425,8 @@ class HaasNextGen(AbstractDevice):
                 actual_idx=0,
                 data_idx=1,
             )
-        elif function == "":  # Some string
-            # Write specific function call to read variable
-            pass
-        else:
-            pass
+        except Exception as e:
+            self._raise_device_error(f"Read parameter '{parameter_name}'", e)
 
         return value
 
@@ -461,7 +453,7 @@ class HaasNextGen(AbstractDevice):
                 conn.close()
         except Exception as e:
             self._error(message="Error reading file names from Haas Net Share: " + str(e))
-            raise Exception("Error reading file names from Haas Net Share: " + str(e))
+            self._raise_device_error("Read file names from Haas Net Share", e)
 
         return self.programs
 
@@ -492,7 +484,7 @@ class HaasNextGen(AbstractDevice):
                 conn.close()
         except Exception as e:
             self._error(message="Error reading file from Haas Net Share: " + str(e))
-            raise Exception("Error reading file from Haas Net Share: " + str(e))
+            self._raise_device_error(f"Read file '{file_name}' from Haas Net Share", e)
 
         return base64.b64encode(file_bytes).decode("utf-8")
 
@@ -523,7 +515,7 @@ class HaasNextGen(AbstractDevice):
                 conn.close()
         except Exception as e:
             self._error(message="Error writing file to Haas Net Share: " + str(e))
-            raise Exception("Error writing file to Haas Net Share: " + str(e))
+            self._raise_device_error(f"Write file '{file_name}' to Haas Net Share", e)
 
     def _load_file(self, file_name: str):
         """
@@ -572,7 +564,7 @@ class HaasNextGen(AbstractDevice):
         )
         connected = conn.connect(self.address, 445)
         if not connected:
-            raise Exception(
+            raise ServiceUnavailableException(
                 "Failed to connect to Haas Net Share at "
                 + self.address
                 + ":445 — check ip_address, fileshare_username, and fileshare_password"
@@ -581,8 +573,6 @@ class HaasNextGen(AbstractDevice):
         return conn, service_name, sub_path
 
     def _process_status(self, result: list):
-        print("Process status: ")
-        print(result)
         if result[0] == "STATUSBUSY":
             return "RUNNING"
         if result[0] == "PROGRAM":
@@ -595,8 +585,117 @@ class HaasNextGen(AbstractDevice):
         return "UNKNOWN_HAAS_STATE"
 
     def _process_response(self, result, expected, actual_idx, data_idx):
-        if expected == result[actual_idx]:
+        if len(result) > max(actual_idx, data_idx) and expected == result[actual_idx]:
             value = result[data_idx]
             return value
         else:
             self._error(message="Error reading variable from device")
+            reply = ",".join(str(r) for r in result)
+            if not reply:
+                raise ServerErrorException(f"No reply from device (expected '{expected}')")
+            raise ServerErrorException(f"Unexpected reply from device (expected '{expected}'): '{reply}'")
+
+    def _query(self, command_name: str) -> str:
+        """Send the Q command for command_name and return the raw value from the reply."""
+        expected, data_idx = self._Q_REPLIES[command_name]
+        command = self.q_commands[command_name] + "\r\n"
+        result = self._send(command)
+        result = result.split(",")
+        return self._process_response(
+            result=result,
+            expected=expected,
+            actual_idx=0,
+            data_idx=data_idx
+        )
+
+    def _send(self, data: str) -> str:
+        """Send a Q command (the TCP client opens a new connection per send) and return the raw reply."""
+        self._ensure_connected()
+        return self.client.send(data=data, encoding="ascii", response_time=0.5)
+
+    def _connect(self) -> None:
+        """Create the Q-command TCP client and the MTConnect client. Both connect per call, so no I/O here."""
+        if self._connected:
+            return
+        self.client = TCP(address=self.address, port=self.port)
+        self.mtconnect_client = MTConnect(ip_address=self.address, port=self.mtconnect_port, path="/current")
+        self._connected = True
+
+    def _disconnect(self) -> None:
+        """Nothing stays open between calls; drop the clients. Safe to call twice."""
+        self.client = None
+        self.mtconnect_client = None
+        self._connected = False
+
+    def _ensure_connected(self) -> None:
+        if not self._connected:
+            self._connect()
+
+    # ############################################################################## #
+    # STANDARD HELPERS (identical in every transformer)
+    # ############################################################################## #
+
+    def _execute_command(self, command) -> str:
+        """
+        Legacy command path, used by Edge HMI control buttons
+        (POST /devices/<id>/execute_command). Hands off to _execute_command_v2.
+        commandJson may be {"command": "x", "args": {...}} or {"command": "x", <args>}.
+        """
+        raw = command.get("commandJson") or "{}"
+        command_json = json.loads(raw) if isinstance(raw, str) else raw
+        args = command_json.get("args")
+        if not isinstance(args, dict):
+            args = {k: v for k, v in command_json.items() if k != "command"}
+        return self._execute_command_v2(command_json.get("command", ""), json.dumps(args))
+
+    @staticmethod
+    def _parse_args(command_args) -> dict:
+        """
+        Parse command_args (the raw request body). Accepts empty, a JSON object, or the
+        documented wrapper {"value": "<JSON object string>"}. The wrapper is only unwrapped
+        when "value" is the only key, so a real "value" arg is left alone.
+        """
+        if not command_args:
+            return {}
+        try:
+            args = json.loads(command_args) if isinstance(command_args, (str, bytes)) else command_args
+            if isinstance(args, dict) and list(args) == ["value"]:
+                inner = args["value"]
+                if isinstance(inner, str) and inner.strip().startswith("{"):
+                    inner = json.loads(inner)
+                if isinstance(inner, dict):
+                    return inner
+        except ValueError as e:
+            raise BadRequestException(f"Command args are not valid JSON: {e}")
+        if not isinstance(args, dict):
+            raise BadRequestException("Command args must be a JSON object")
+        return args
+
+    @staticmethod
+    def _require(args: dict, key: str):
+        """Return args[key], or raise BadRequestException (HTTP 400) when it is missing or blank."""
+        if args.get(key) in (None, ""):
+            raise BadRequestException(f"Missing required arg '{key}'")
+        return args[key]
+
+    @staticmethod
+    def _as_bool(value, default: bool = False) -> bool:
+        """metaData / arg booleans: accepts True/False, "true"/"false" (any case), "1"/"0", "yes"/"no"."""
+        if isinstance(value, bool):
+            return value
+        if value is None or str(value).strip() == "":
+            return default
+        return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+    def _raise_device_error(self, action: str, error: Exception):
+        """
+        Re-raise a failed device call as the runtime exception the API turns into an HTTP error:
+        runtime/HTTP exceptions pass through unchanged; network errors -> 503 (and the transformer
+        is marked disconnected so the next call reconnects); anything else -> 500.
+        """
+        if isinstance(error, (FlexxCoreException, HTTPException)):
+            raise error
+        if isinstance(error, (OSError, TimeoutError, ConnectionError)):
+            self._connected = False
+            raise ServiceUnavailableException(f"{action}: device did not respond ({error})") from error
+        raise ServerErrorException(f"{action} failed: {error}") from error

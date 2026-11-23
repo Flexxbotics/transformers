@@ -21,15 +21,14 @@ import json
 import base64
 from transformers.abstract_device import AbstractDevice
 from protocols import modbus
-import sys
-"""
+from werkzeug.exceptions import HTTPException
+from exceptions.flexxCoreExceptions import (
+    FlexxCoreException,
+    BadRequestException,
+    ServerErrorException,
+    ServiceUnavailableException,
+)
 
-    THIS IS A TEMPLATE. Be wary about making changes directly to it. It is meant to serve as guidance to future
-    device interface developers. Order of operations to use this file should be:
-        1. Make a copy of template.py and rename it as device_interface_name.py.
-        2. Make edits directly in the copied file
-
-"""
 
 class CognexModbusTCP(AbstractDevice):
 
@@ -47,11 +46,17 @@ class CognexModbusTCP(AbstractDevice):
 
 
         # modbusTCP setup
-        self.meta_data = device.metaData
-        self.CAMERA_IP = self.meta_data["ip_address"]
-        self.CAMERA_PORT = self.meta_data["port"]
-        self._client = modbus.ModbusTCP(self.CAMERA_IP, self.CAMERA_PORT)
-        self._client.connect()
+        self.meta_data = device.metaData or {}
+        self.CAMERA_IP = self.meta_data.get("ip_address", "")
+        self.CAMERA_PORT = int(self.meta_data.get("port") or 0)
+        if not self.CAMERA_IP:
+            raise ValueError("CognexModbusTCP: metaData must contain 'ip_address'")
+        if not self.CAMERA_PORT:
+            raise ValueError("CognexModbusTCP: metaData must contain 'port'")
+
+        # The Modbus wrapper opens and closes the socket on every call; _connect() creates the client
+        self._client = None
+        self._connected = False
 
         # register setup
         self.STATUS_REGISTER = 100
@@ -80,51 +85,25 @@ class CognexModbusTCP(AbstractDevice):
 
 
     def __del__(self):
-        pass
+        try:
+            self._disconnect()
+        except Exception:
+            pass
 
     # ############################################################################## #
     # DEVICE COMMUNICATION METHODS
     # ############################################################################## #
 
-    def _execute_command(self, command : str) -> str:
-        """
-        Executes the command sent to the device.
-
-        :param command:
-                    the command to be executed
-
-        :return:    the response after execution of command.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
-        """
-        # Parse the command from the incoming request
-        command_string = command["commandJson"]
-        command_json = json.loads(command_string)
-        command_name = command_json["command"]
-        response = ""
-
-        self._info(message="Sending command: " + command_string)
-        try:
-            pass
-
-        except Exception as e:
-            raise Exception(
-                "Error when sending command, did not get response"
-                + command_name
-            )
-
-        finally:
-            pass
-
-        if "ERROR" in response:
-            raise Exception("Error returned from device.. " + command_name)
-
-        return response
-
     def _execute_command_v2(self, command_name : str, command_args : str) -> str:
         """
         Executes the command sent to the device.
+
+        Supported commands
+        ------------------
+        connect     Returns: {"status": "ok", "connected": true}
+        disconnect  Returns: {"status": "ok", "connected": false}
+
+        Any other command raises BadRequestException (400).
 
         :param command_name:
                     the command to be executed
@@ -137,26 +116,22 @@ class CognexModbusTCP(AbstractDevice):
         :since:     ODOULS.3 (7.1.15.3)
         """
         # Parse the command from the incoming request
-        args = json.loads(command_args)
-        response = ""
+        args = self._parse_args(command_args)
 
         self._info(message="Sending command: " + command_name)
         try:
-            pass
+            if command_name == "connect":
+                self._connect()
+                return json.dumps({"status": "ok", "connected": True})
+
+            if command_name == "disconnect":
+                self._disconnect()
+                return json.dumps({"status": "ok", "connected": False})
 
         except Exception as e:
-            raise Exception(
-                "Error when sending command, did not get response from device: "
-                + command_name
-            )
+            self._raise_device_error(f"Command '{command_name}'", e)
 
-        finally:
-            pass
-
-        if "ERROR" in response:
-            raise Exception("Error returned from device... " + command_name)
-
-        return response
+        raise BadRequestException(f"Unknown command '{command_name}'")
 
     def _read_interval_data(self) -> str:
         """
@@ -176,16 +151,15 @@ class CognexModbusTCP(AbstractDevice):
         Method to read the status of the device
 
         :param function:
-                    Optional parameter to provide the name of a function to run - string
+                    Ignored
 
-        :return:    status - string
+        :return:    status - "ONLINE" / "OFFLINE", or "ERROR" when the camera cannot be read
 
         :author:    tylerjm@flexxbotics.com
         :since:     ODOULS.3 (7.1.15.3)
         """
-        status = ""
-        if function is None:
-            # Write standard read status statements
+        try:
+            self._ensure_connected()
             response = self._client.read_holding_register(self.STATUS_REGISTER, count=2)
             reg1 = response.registers[0]
             reg2 = response.registers[1]
@@ -198,129 +172,32 @@ class CognexModbusTCP(AbstractDevice):
 
             if response.isError():
                 return "ERROR GETTING RESPONSE"
-            print(sys.executable)
             return "ONLINE" if bool(byte0 & 0x80) else "OFFLINE"
-        elif function == "": # Some string
-            # Write specific function call to read status
-            pass
-        else:
-            pass
-
-        return status
+        except Exception as e:
+            self._error(message=f"Status read failed: {e}")
+            self._connected = False
+            return "ERROR"
 
     def _read_variable(self, variable_name : str, function : str=None) -> str:
         """
         Method to read the specified variable from the device
 
         :param variable_name:
-                    The name of the variable to read - string
+                    The In-Sight variable name; sent as the native "GV<name>" command - string
 
         :param function:
-                    Optional parameter to provide the name of a function to run - string
+                    Ignored
 
-        :return:    value - string
+        :return:    value - string. Raises on failure (503 when the camera does not respond, 500 otherwise).
 
         :author:    tylerjm@flexxbotics.com
         :since:     ODOULS.3 (7.1.15.3)
         """
-
-        value = self._send_string_command("GV" + variable_name)
-
-        # value = self.send_string_command("GI")
-        if function is None:
-            # Write standard read variable statements
-            pass
-        elif function == "": # Some string
-            # Write specific function call to read variable
-            pass
-        else:
-            pass
-
-        return value
-
-    def _write_variable(self, variable_name : str, variable_value : str, function : str=None) -> str:
-        """
-        Method to write the specified variable on the device
-
-        :param variable_name:
-                    The name of the variable to write - string
-
-        :param variable_value:
-                    The value of the variable to write - string
-
-        :param function:
-                    Optional parameter to provide the name of a function to run - string
-
-        :return:    value - string
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
-        """
-        value = ""
-        if function is None:
-            # Write standard write variable statements
-            pass
-        elif function == "":  # Some string
-            # Write specific function call to write variable
-            pass
-        else:
-            pass
-
-        return value
-
-    def _write_parameter(self, parameter_name : str, parameter_value : str, function : str=None) -> str:
-        """
-        Method to write the specified parameter on the device
-
-        :param parameter:
-                    The parameter to write - string
-
-        :param parameter:
-                    The value of the parameter to write - string
-
-        :param function:
-                    Optional parameter to provide the name of a function to run - string
-
-        :return:    value - string
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
-        """
-        if function is None:
-            # Write standard write parameter statements
-            pass
-        elif function == "":  # Some string
-            # Write specific function call to write parameter
-            pass
-        else:
-            pass
-
-    def _read_parameter(self, parameter_name : str, function : str=None) -> str:
-        """
-        Method to read the specified parameter from the device
-
-        :param parameter:
-                    The parameter to write - string
-
-        :param function:
-                    Optional parameter to provide the name of a function to run - string
-
-        :return:    value - string
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
-        """
-        value = ""
-        if function is None:
-            # Write standard read variable statements
-            pass
-        elif function == "": # Some string
-            # Write specific function call to read variable
-            pass
-        else:
-            pass
-
-        return value
+        try:
+            value = self._send_string_command("GV" + variable_name)
+            return str(value)
+        except Exception as e:
+            self._raise_device_error(f"Read variable '{variable_name}'", e)
 
     def _run_program(self, function: str = None):
         """
@@ -353,9 +230,12 @@ class CognexModbusTCP(AbstractDevice):
         """
 
         # Return list of available filenames from the device
-        programs_string = self._send_string_command("Get FileList")
-        programs = programs_string.splitlines()
-        return programs #TODO is this the actual response object we want?
+        try:
+            programs_string = self._send_string_command("Get FileList")
+            programs = programs_string.splitlines()
+            return programs #TODO is this the actual response object we want?
+        except Exception as e:
+            self._raise_device_error("Read file names", e)
 
     def _read_file(self, file_name : str) -> str:
         """
@@ -370,9 +250,12 @@ class CognexModbusTCP(AbstractDevice):
         :since:     KEYSTONE.4 (7.1.11.4)
         """
         # Reads the file content off the device
-        file_data = ""
-
-        return self._send_string_command("RJ" + file_name)
+        try:
+            file_data = self._send_string_command("RJ" + file_name)
+            # The register decoder maps each byte to one character, so latin-1 gives the bytes back
+            return base64.b64encode(file_data.encode("latin-1")).decode("ascii")
+        except Exception as e:
+            self._raise_device_error(f"Read file '{file_name}'", e)
 
     def _write_file(self, file_name : str, file_data : str):
         """
@@ -401,13 +284,20 @@ class CognexModbusTCP(AbstractDevice):
 
         #For Cognex Jobs the file name corresponds to an int at the start of the job name
 
-        #Camera starts online and needs to be offline to change jobs
-        self._send_string_command("SO0")
-        self._send_string_command("SJ" + file_name)
-        current_job = self._send_string_command("GJ")
-        self._send_string_command("SO1")
+        try:
+            #Camera starts online and needs to be offline to change jobs
+            try:
+                self._send_string_command("SO0")
+                self._send_string_command("SJ" + file_name)
+                current_job = self._send_string_command("GJ")
+            finally:
+                # Always put the camera back online, even when the job change failed
+                self._send_string_command("SO1")
 
-        return "Current Job Set To: " + self._send_string_command("RJ" + current_job)
+            return "Current Job Set To: " + self._send_string_command("RJ" + current_job)
+        except Exception as e:
+            self._raise_device_error(f"Load file '{file_name}'", e)
+
     # ############################################################################## #
     # INTERFACE HELPER METHODS
     #
@@ -426,7 +316,7 @@ class CognexModbusTCP(AbstractDevice):
             this_count = min(self.MAX_REGS_PER_READ, remaining)
             response = self._client.read_input_register(address=addr, count=this_count)
             if not response or not hasattr(response, "registers"):
-                print(f"Failed to read {this_count} registers from {addr}")
+                self._error(message=f"Failed to read {this_count} registers from {addr}")
                 break
             all_regs.extend(response.registers)
             addr += this_count
@@ -454,8 +344,9 @@ class CognexModbusTCP(AbstractDevice):
                     chars.append(chr(high))
         return ''.join(chars).strip('\x00')
 
-    def _send_string_command(self, command: str):
-        """Initiate String Command Via ModbusTCP"""
+    def _send_string_command(self, command: str) -> str:
+        """Initiate String Command Via ModbusTCP. Returns the result string; raises on failure."""
+        self._ensure_connected()
         ascii_vals = [ord(c) for c in command]
         if len(ascii_vals) % 2 != 0:
             ascii_vals.append(0)
@@ -479,31 +370,26 @@ class CognexModbusTCP(AbstractDevice):
                 break
             time.sleep(0.1)
         else:
-            print("Timeout waiting for ACK")
-            return "timed out waiting for ACK"
+            raise ServiceUnavailableException(f"Cognex: timed out waiting for ACK of command '{command}'")
 
         error = self._client.read_discrete_inputs(self.ERROR_INPUT_BIT, count=1).bits[0]
         if error:
             error_response = self._read_string_command_results()
-            print("error response", error_response)
-            return "error"
+            raise ServerErrorException(f"Cognex: command '{command}' failed: {error_response}")
 
             # Clear Initiate String Command
         self._client.write_single_coil(self.INITIATE_STRING_COMMAND_COIL, False)
 
         return self._read_string_command_results()
 
-    def _read_string_command_results(self):
-        """Read result code"""
+    def _read_string_command_results(self) -> str:
+        """Read result code. Returns the result string; raises ServerErrorException on a failure code."""
         result_code = self._client.read_input_register(self.RESULT_CODE_ADDR, count=1).registers[0]
-        print("result code ", result_code)
         if result_code != 1:
-            print(f"Result Code: {result_code} (Fail)")
-            return result_code
+            raise ServerErrorException(f"Cognex: string command failed, result code {result_code}")
 
         # Read result length
         result_length = self._client.read_input_register(self.RESULT_LENGTH_ADDR, count=1).registers[0]
-        print("result Length", result_length)
         reg_count = (result_length + 1) // 2
         if reg_count > 0:
             result_regs = self._read_input_registers_chunked(self.RESULT_START_ADDR, count=reg_count)
@@ -514,3 +400,91 @@ class CognexModbusTCP(AbstractDevice):
             result_str = "command was sent with no response"
 
         return result_str
+
+    def _connect(self) -> None:
+        if self._connected and self._client is not None:
+            return
+        # No probe: the Modbus wrapper opens and closes the socket on every call
+        self._client = modbus.ModbusTCP(self.CAMERA_IP, self.CAMERA_PORT)
+        self._connected = True
+
+    def _disconnect(self) -> None:
+        try:
+            if self._client is not None:
+                self._client.disconnect()
+        finally:
+            self._client = None
+            self._connected = False
+
+    def _ensure_connected(self) -> None:
+        if not self._connected or self._client is None:
+            self._connect()
+
+    # ############################################################################## #
+    # STANDARD HELPERS (identical in every transformer)
+    # ############################################################################## #
+
+    def _execute_command(self, command) -> str:
+        """
+        Legacy command path, used by Edge HMI control buttons
+        (POST /devices/<id>/execute_command). Hands off to _execute_command_v2.
+        commandJson may be {"command": "x", "args": {...}} or {"command": "x", <args>}.
+        """
+        raw = command.get("commandJson") or "{}"
+        command_json = json.loads(raw) if isinstance(raw, str) else raw
+        args = command_json.get("args")
+        if not isinstance(args, dict):
+            args = {k: v for k, v in command_json.items() if k != "command"}
+        return self._execute_command_v2(command_json.get("command", ""), json.dumps(args))
+
+    @staticmethod
+    def _parse_args(command_args) -> dict:
+        """
+        Parse command_args (the raw request body). Accepts empty, a JSON object, or the
+        documented wrapper {"value": "<JSON object string>"}. The wrapper is only unwrapped
+        when "value" is the only key, so a real "value" arg is left alone.
+        """
+        if not command_args:
+            return {}
+        try:
+            args = json.loads(command_args) if isinstance(command_args, (str, bytes)) else command_args
+            if isinstance(args, dict) and list(args) == ["value"]:
+                inner = args["value"]
+                if isinstance(inner, str) and inner.strip().startswith("{"):
+                    inner = json.loads(inner)
+                if isinstance(inner, dict):
+                    return inner
+        except ValueError as e:
+            raise BadRequestException(f"Command args are not valid JSON: {e}")
+        if not isinstance(args, dict):
+            raise BadRequestException("Command args must be a JSON object")
+        return args
+
+    @staticmethod
+    def _require(args: dict, key: str):
+        """Return args[key], or raise BadRequestException (HTTP 400) when it is missing or blank."""
+        if args.get(key) in (None, ""):
+            raise BadRequestException(f"Missing required arg '{key}'")
+        return args[key]
+
+    @staticmethod
+    def _as_bool(value, default: bool = False) -> bool:
+        """metaData / arg booleans: accepts True/False, "true"/"false" (any case), "1"/"0", "yes"/"no"."""
+        if isinstance(value, bool):
+            return value
+        if value is None or str(value).strip() == "":
+            return default
+        return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+    def _raise_device_error(self, action: str, error: Exception):
+        """
+        Re-raise a failed device call as the runtime exception the API turns into an HTTP error:
+        runtime/HTTP exceptions pass through unchanged; network errors -> 503 (and the transformer
+        is marked disconnected so the next call reconnects); anything else -> 500.
+        """
+        if isinstance(error, (FlexxCoreException, HTTPException)):
+            raise error
+        if isinstance(error, (OSError, TimeoutError, ConnectionError)):
+            self._connected = False
+            raise ServiceUnavailableException(f"{action}: device did not respond ({error})") from error
+        raise ServerErrorException(f"{action} failed: {error}") from error
