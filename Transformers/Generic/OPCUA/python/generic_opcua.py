@@ -19,8 +19,16 @@ import json
 import base64
 from typing import List, Optional
 
+from werkzeug.exceptions import HTTPException
+
 from data_models.device import Device
 from transformers.abstract_device import AbstractDevice
+from exceptions.flexxCoreExceptions import (
+    FlexxCoreException,
+    BadRequestException,
+    ServerErrorException,
+    ServiceUnavailableException,
+)
 from protocols.opcua import OPCUA, OpcuaWrite
 
 
@@ -58,6 +66,10 @@ class GenericOPCUA(AbstractDevice):
                         "ns=2;s=Speed,ns=2;s=Temp"
     subscription_queue_maxlen : Max buffered subscription notifications (default 5000)
 
+    A blank value (the device wizard saves unfilled fields as "") uses the
+    default. A value that cannot be converted (e.g. timeout "abc") raises
+    ValueError.
+
     OPC-UA nuances
     --------------
     * NodeIds can be numeric (i=), string (s=), GUID (g=), or opaque (b=).
@@ -73,6 +85,16 @@ class GenericOPCUA(AbstractDevice):
       subscribe + receive_notifications command pair for event-driven reads.
     * OPC-UA servers often restart their NamespaceIndex on firmware update —
       always verify namespace indices after any server update.
+
+    Errors
+    ------
+    Failures raise the runtime's exceptions, which the API returns as HTTP
+    errors carrying the message: BadRequestException (400) for missing or
+    non-JSON args or an unknown command, ServiceUnavailableException (503)
+    when the server does not respond, ServerErrorException (500) for anything
+    else (e.g. a bad NodeId, or a non-numeric value for a numeric arg).
+    _read_status never raises (it returns "ERROR"), and neither does
+    _read_interval_data.
     """
 
     # Standard OPC-UA ServerState node
@@ -124,23 +146,13 @@ class GenericOPCUA(AbstractDevice):
 
     def __del__(self):
         try:
-            if self._connected:
-                self._disconnect()
+            self._disconnect()
         except Exception:
             pass
 
     # ############################################################################## #
     # DEVICE COMMUNICATION METHODS
     # ############################################################################## #
-
-    def _execute_command(self, command: str) -> str:
-        """Legacy v1 entry point — delegates to _execute_command_v2."""
-        command_string = command["commandJson"]
-        command_json   = json.loads(command_string)
-        command_name   = command_json.get("command", "")
-        command_args   = json.dumps({k: v for k, v in command_json.items() if k != "command"})
-        self._info(message=f"Sending command: {command_string}")
-        return self._execute_command_v2(command_name, command_args)
 
     def _execute_command_v2(self, command_name: str, command_args: str) -> str:
         """
@@ -150,58 +162,63 @@ class GenericOPCUA(AbstractDevice):
         ------------------
         connect
             Open OPC-UA session to the server.
+            Returns: {"status": "ok", "connected": true, "endpoint": "..."}
 
         disconnect
             Close OPC-UA session.
+            Returns: {"status": "ok", "connected": false}
 
         read
             Read a single node value.
-            Args: node_id (str), variant_type (str, optional)
-            Returns: {"node_id": "...", "value": <value>}
+            Args: node_id (str, required)
+            Returns: {"status": "ok", "node_id": "...", "value": <value>}
 
         write
             Write a value to a single node.
-            Args: node_id (str), value (<any>), variant_type (str, optional)
+            Args: node_id (str, required), value (<any>), variant_type (str, optional)
                   variant_type values: Boolean, Int16, Int32, Int64, UInt16,
-                                       UInt32, UInt64, Float, Double, String
+                                       UInt32, UInt64, Float, Double, String,
+                                       DateTime, Byte, SByte (any other name
+                                       writes untyped)
             Returns: {"node_id": "...", "value": <value>, "status": "ok"}
 
         read_nodes
             Batch read multiple nodes in a single request.
-            Args: node_ids (comma-separated string or JSON array)
-            Returns: {"values": {"<node_id>": <value>, ...}}
+            Args: node_ids (comma-separated string or JSON array, required)
+            Returns: {"status": "ok", "values": {"<node_id>": <value>, ...}}
+                     A node that fails to read has the value "ERROR: ...".
 
         browse
             Browse children of a node.
             Args: node_id (str, default "i=85" = Objects folder)
-            Returns: {"nodes": [{"node_id": "...", "browse_name": "...", ...}]}
+            Returns: {"status": "ok", "node_id": "...", "nodes": [{"node_id": "...",
+                      "browse_name": "...", "display_name": "..."}, ...]}
 
         subscribe
-            Subscribe to data-change notifications for one or more nodes.
-            Args: node_ids (comma-separated or JSON array),
+            Subscribe to data-change notifications for one or more nodes,
+            replacing any previous subscription.  The subscription is lost if
+            the connection drops; call subscribe again after a reconnect.
+            Args: node_ids (comma-separated or JSON array, required),
                   publishing_interval_ms (int, default 250)
-            Returns: {"status": "ok", "subscribed": <count>}
+            Returns: {"status": "ok", "subscribed": <count>,
+                      "publishing_interval_ms": n}
 
         receive_notifications
             Drain buffered subscription notifications (non-blocking).
             Args: buffer_size (int, default 10)
-            Returns: [{"node_id": "...", "value": ..., "source_timestamp": ...}, ...]
+            Returns: {"status": "ok", "notifications": [{"node_id": "...",
+                      "value": ..., "source_timestamp": ...,
+                      "server_timestamp": ...}, ...]}
 
         health_check
             Probe the server's CurrentTime node to verify liveness.
-            Returns: {"alive": true/false}
-        """
-        args = json.loads(command_args) if command_args else {}
-        if isinstance(args, dict) and "value" in args and isinstance(args.get("value"), (str, dict)):
-            inner = args["value"]
-            if isinstance(inner, str):
-                try:
-                    inner = json.loads(inner)
-                except Exception:
-                    pass
-            if isinstance(inner, dict):
-                args = inner
+            Returns: {"status": "ok", "alive": true/false}
 
+        Errors raise: 400 for missing or non-JSON args or an unknown command,
+        503 when the server does not respond, 500 otherwise (including a
+        non-numeric value for a numeric arg).
+        """
+        args = self._parse_args(command_args)
         self._info(message=f"Sending command: {command_name}")
 
         try:
@@ -217,22 +234,18 @@ class GenericOPCUA(AbstractDevice):
 
             # ---- read ----
             if command_name == "read":
+                node_id = str(self._require(args, "node_id"))
                 self._ensure_connected()
-                node_id = str(args.get("node_id", ""))
-                if not node_id:
-                    return self._err("Missing required field: node_id")
                 value = self._client.read_node(node_id)
                 return json.dumps({"status": "ok", "node_id": node_id,
                                    "value": value}, default=str)
 
             # ---- write ----
             if command_name == "write":
-                self._ensure_connected()
-                node_id      = str(args.get("node_id", ""))
+                node_id      = str(self._require(args, "node_id"))
                 value        = args.get("value")
                 variant_type = args.get("variant_type")
-                if not node_id:
-                    return self._err("Missing required field: node_id")
+                self._ensure_connected()
                 vt = self._variant_type_from_str(variant_type)
                 self._client.write_node(node_id, value, variant_type=vt)
                 return json.dumps({"status": "ok", "node_id": node_id,
@@ -240,29 +253,29 @@ class GenericOPCUA(AbstractDevice):
 
             # ---- read_nodes (batch) ----
             if command_name == "read_nodes":
-                self._ensure_connected()
                 node_ids = self._parse_node_ids(args.get("node_ids", ""))
                 if not node_ids:
-                    return self._err("Missing required field: node_ids")
+                    raise BadRequestException("Missing required arg 'node_ids'")
+                self._ensure_connected()
                 results = self._client.read_nodes(node_ids)
                 return json.dumps({"status": "ok", "values": results},
                                   default=str)
 
             # ---- browse ----
             if command_name == "browse":
+                node_id = str(args.get("node_id") or "i=85")
                 self._ensure_connected()
-                node_id = str(args.get("node_id", "i=85"))
                 nodes   = self._client.browse(node_id)
                 return json.dumps({"status": "ok", "node_id": node_id,
                                    "nodes": nodes}, default=str)
 
             # ---- subscribe ----
             if command_name == "subscribe":
-                self._ensure_connected()
                 node_ids     = self._parse_node_ids(args.get("node_ids", ""))
-                interval_ms  = int(args.get("publishing_interval_ms", 250))
+                interval_ms  = int(args.get("publishing_interval_ms") or 250)
                 if not node_ids:
-                    return self._err("Missing required field: node_ids")
+                    raise BadRequestException("Missing required arg 'node_ids'")
+                self._ensure_connected()
                 self._client.subscribe_data_change(node_ids,
                                                    publishing_interval_ms=interval_ms)
                 return json.dumps({"status": "ok", "subscribed": len(node_ids),
@@ -270,8 +283,8 @@ class GenericOPCUA(AbstractDevice):
 
             # ---- receive_notifications ----
             if command_name == "receive_notifications":
+                buf_size = int(args.get("buffer_size") or 10)
                 self._ensure_connected()
-                buf_size = int(args.get("buffer_size", 10))
                 raw      = self._client.receive(buffer_size=buf_size)
                 return json.dumps({"status": "ok", "notifications": json.loads(raw)},
                                   default=str)
@@ -282,27 +295,32 @@ class GenericOPCUA(AbstractDevice):
                 alive = self._client.health_check(force=True)
                 return json.dumps({"status": "ok", "alive": alive})
 
-            return self._err(f"Unknown command: '{command_name}'")
-
         except Exception as e:
-            self._error(message=f"Command '{command_name}' failed: {e}")
-            return self._err(str(e))
+            self._raise_device_error(f"Command '{command_name}'", e)
+
+        raise BadRequestException(f"Unknown command '{command_name}'")
 
     def _read_interval_data(self) -> str:
         """
         Periodic poll. Reads each node in metaData.interval_node_ids and
-        returns their values as a JSON map.
+        returns their values as a JSON map.  Never raises: a node that fails
+        (or every node, when the server is unreachable) reports "ERROR: ...".
+        Falls back to _read_status when no interval_node_ids are configured.
         """
         if not self.interval_node_ids:
             return json.dumps({"status": self._read_status()})
 
-        self._ensure_connected()
         results = {}
-        for node_id in self.interval_node_ids:
-            try:
-                results[node_id] = self._client.read_node(node_id)
-            except Exception as e:
-                results[node_id] = f"ERROR: {e}"
+        try:
+            self._ensure_connected()
+            for node_id in self.interval_node_ids:
+                try:
+                    results[node_id] = self._client.read_node(node_id)
+                except Exception as e:
+                    results[node_id] = f"ERROR: {e}"
+        except Exception as e:
+            self._error(message=f"Interval read failed: {e}")
+            results = {node_id: f"ERROR: {e}" for node_id in self.interval_node_ids}
         return json.dumps({"status": "ok", "values": results}, default=str)
 
     def _read_status(self, function: str = None) -> str:
@@ -310,15 +328,19 @@ class GenericOPCUA(AbstractDevice):
         Read the OPC-UA server state.
 
         If metaData.status_node_id is set to a custom node, reads that and
-        returns its string value directly.
+        returns its string value directly ("UNKNOWN" when it holds no value).
 
         If using the default standard ServerState node (i=2259):
-          0=Running  → "RUNNING"
-          1=Failed   → "FAILED"
-          2=NoConfig → "NO_CONFIG"
-          3=Suspended→ "SUSPENDED"
-          4=Shutdown → "SHUTDOWN"
-          other      → "UNKNOWN"
+          0=Running            → "RUNNING"
+          1=Failed             → "FAILED"
+          2=NoConfig           → "NOCONFIG"
+          3=Suspended          → "SUSPENDED"
+          4=Shutdown           → "SHUTDOWN"
+          5=Test               → "TEST"
+          6=CommunicationFault → "COMMUNICATIONFAULT"
+          other (or no value)  → "UNKNOWN"
+
+        Any failure returns "ERROR" (never raises).
         """
         try:
             self._ensure_connected()
@@ -332,31 +354,42 @@ class GenericOPCUA(AbstractDevice):
 
         except Exception as e:
             self._error(message=f"Status read failed: {e}")
+            # Reconnect next time only after a communication error; a node-level
+            # error (e.g. a bad status_node_id) must not drop the session and
+            # its subscriptions on every poll.
+            if isinstance(e, (OSError, TimeoutError, ConnectionError)):
+                self._connected = False
             self.status = "ERROR"
 
         return self.status
 
     def _read_variable(self, variable_name: str, function: str = None) -> str:
-        """Read an OPC-UA node by NodeId string."""
+        """
+        Read an OPC-UA node by NodeId string (e.g. "ns=2;s=Speed") and return
+        its value as a plain string ("" when the node holds no value).
+        Raises on failure (503 when the server does not respond, 500 otherwise).
+        """
         try:
             self._ensure_connected()
             value = self._client.read_node(variable_name)
             return str(value) if value is not None else ""
         except Exception as e:
-            self._error(message=f"Read variable '{variable_name}' failed: {e}")
-            return ""
+            self._raise_device_error(f"Read variable '{variable_name}'", e)
 
     def _write_variable(self, variable_name: str, variable_value: str,
                         function: str = None) -> str:
-        """Write a value to an OPC-UA node. Coerces string value to bool/int/float."""
+        """
+        Write a value to an OPC-UA node. Coerces string value to bool/int/float.
+        Returns the written value.  Raises on failure (503 when the server does
+        not respond, 500 otherwise).
+        """
         try:
             self._ensure_connected()
             value = self._coerce_value(variable_value)
             self._client.write_node(variable_name, value)
             return variable_value
         except Exception as e:
-            self._error(message=f"Write variable '{variable_name}' failed: {e}")
-            return ""
+            self._raise_device_error(f"Write variable '{variable_name}'", e)
 
     def _read_parameter(self, parameter_name: str, function: str = None) -> str:
         return self._read_variable(parameter_name, function)
@@ -400,7 +433,7 @@ class GenericOPCUA(AbstractDevice):
         rc = self._client.connect()
         if rc != 0:
             self._connected = False
-            raise ConnectionError(
+            raise ServiceUnavailableException(
                 f"GenericOPCUA: connect failed (endpoint={self.endpoint})"
             )
 
@@ -496,9 +529,71 @@ class GenericOPCUA(AbstractDevice):
             pass
         return raw
 
-    def _err(self, message: str) -> str:
+    # ############################################################################## #
+    # STANDARD HELPERS (identical in every transformer)
+    # ############################################################################## #
+
+    def _execute_command(self, command) -> str:
+        """
+        Legacy command path, used by Edge HMI control buttons
+        (POST /devices/<id>/execute_command). Hands off to _execute_command_v2.
+        commandJson may be {"command": "x", "args": {...}} or {"command": "x", <args>}.
+        """
+        raw = command.get("commandJson") or "{}"
+        command_json = json.loads(raw) if isinstance(raw, str) else raw
+        args = command_json.get("args")
+        if not isinstance(args, dict):
+            args = {k: v for k, v in command_json.items() if k != "command"}
+        return self._execute_command_v2(command_json.get("command", ""), json.dumps(args))
+
+    @staticmethod
+    def _parse_args(command_args) -> dict:
+        """
+        Parse command_args (the raw request body). Accepts empty, a JSON object, or the
+        documented wrapper {"value": "<JSON object string>"}. The wrapper is only unwrapped
+        when "value" is the only key, so a real "value" arg is left alone.
+        """
+        if not command_args:
+            return {}
         try:
-            self._error(message=message)
-        except Exception:
-            pass
-        return json.dumps({"status": "error", "message": str(message)}, default=str)
+            args = json.loads(command_args) if isinstance(command_args, (str, bytes)) else command_args
+            if isinstance(args, dict) and list(args) == ["value"]:
+                inner = args["value"]
+                if isinstance(inner, str) and inner.strip().startswith("{"):
+                    inner = json.loads(inner)
+                if isinstance(inner, dict):
+                    return inner
+        except ValueError as e:
+            raise BadRequestException(f"Command args are not valid JSON: {e}")
+        if not isinstance(args, dict):
+            raise BadRequestException("Command args must be a JSON object")
+        return args
+
+    @staticmethod
+    def _require(args: dict, key: str):
+        """Return args[key], or raise BadRequestException (HTTP 400) when it is missing or blank."""
+        if args.get(key) in (None, ""):
+            raise BadRequestException(f"Missing required arg '{key}'")
+        return args[key]
+
+    @staticmethod
+    def _as_bool(value, default: bool = False) -> bool:
+        """metaData / arg booleans: accepts True/False, "true"/"false" (any case), "1"/"0", "yes"/"no"."""
+        if isinstance(value, bool):
+            return value
+        if value is None or str(value).strip() == "":
+            return default
+        return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+    def _raise_device_error(self, action: str, error: Exception):
+        """
+        Re-raise a failed device call as the runtime exception the API turns into an HTTP error:
+        runtime/HTTP exceptions pass through unchanged; network errors -> 503 (and the transformer
+        is marked disconnected so the next call reconnects); anything else -> 500.
+        """
+        if isinstance(error, (FlexxCoreException, HTTPException)):
+            raise error
+        if isinstance(error, (OSError, TimeoutError, ConnectionError)):
+            self._connected = False
+            raise ServiceUnavailableException(f"{action}: device did not respond ({error})") from error
+        raise ServerErrorException(f"{action} failed: {error}") from error

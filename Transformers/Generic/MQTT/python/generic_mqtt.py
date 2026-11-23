@@ -20,8 +20,16 @@ import time
 import base64
 from typing import List, Optional
 
+from werkzeug.exceptions import HTTPException
+
 from data_models.device import Device
 from transformers.abstract_device import AbstractDevice
+from exceptions.flexxCoreExceptions import (
+    FlexxCoreException,
+    BadRequestException,
+    ServerErrorException,
+    ServiceUnavailableException,
+)
 from protocols.mqtt import MQTT, MqttPublish, MqttSubscribe
 
 
@@ -53,6 +61,7 @@ class GenericMQTT(AbstractDevice):
     Connection parameters (metaData)
     ---------------------------------
     host                : Broker hostname or IP address (required).
+    ip_address          : Accepted in place of host when host is blank.
     port                : Broker port (default 1883; 8883 for TLS).
     client_id           : MQTT client identifier (optional; broker assigns
                           one when blank).
@@ -91,7 +100,7 @@ class GenericMQTT(AbstractDevice):
                           as-is (default "").
     interval_topics     : Comma-separated topics drained on interval.  These are
                           subscribed on connect and their latest messages are
-                          reported by _read_interval_data.
+                          returned by _read_interval_data.
 
     MQTT nuances
     ------------
@@ -106,15 +115,30 @@ class GenericMQTT(AbstractDevice):
     * Wildcards: subscriptions accept "+" (single level) and "#" (multi level,
       terminal only).  Publishes must be to concrete topics — no wildcards.
     * The broker connection is held open with a background network thread and
-      reused across commands, so subscriptions persist between calls.  A
-      dropped connection is re-established automatically on the next command.
+      reused across commands, so subscriptions persist between calls while it
+      stays up.  A dropped connection is re-established by the client (its
+      network thread, or the next call), but as a clean session, so earlier
+      subscriptions are gone; subscribe_on_connect and interval_topics are
+      only renewed when the transformer itself reconnects (after a failed
+      call or a disconnect command).
+
+    Errors
+    ------
+    Failures raise the runtime's exceptions, which the API returns as HTTP
+    errors carrying the message: BadRequestException (400) for missing or
+    non-JSON args, a qos outside 0-2, a wildcard will topic, or an unknown
+    command, ServiceUnavailableException (503) when the broker does not
+    respond (or, for _read_variable, no message arrives within read_timeout),
+    ServerErrorException (500) for anything else, including a publish the
+    client rejected and a non-numeric value for a numeric arg.  _read_status
+    never raises (it returns "ERROR"), and neither does _read_interval_data.
     """
 
     def __init__(self, device: Device):
         super().__init__(device)
 
         self.meta_data            = device.metaData or {}
-        self.host                 = self.meta_data.get("host", "")
+        self.host                 = self.meta_data.get("host") or self.meta_data.get("ip_address", "")
         self.port                 = int(self.meta_data.get("port", 1883))
         self.client_id            = self.meta_data.get("client_id", "") or None
         self.username             = self.meta_data.get("username", "") or None
@@ -156,31 +180,23 @@ class GenericMQTT(AbstractDevice):
         ]
 
         if not self.host:
-            raise ValueError("GenericMQTT: metaData must contain 'host'")
+            raise ValueError("GenericMQTT: metaData must contain 'host' (or 'ip_address')")
 
         self._client: Optional[MQTT] = None
         self._connected = False
+        # Last Will set by the set_last_will command; applied on every connect.
+        self._last_will: Optional[dict] = None
         self.status = "Transformer Initiated"
 
     def __del__(self):
         try:
-            if self._connected:
-                self._disconnect()
+            self._disconnect()
         except Exception:
             pass
 
     # ############################################################################## #
     # DEVICE COMMUNICATION METHODS
     # ############################################################################## #
-
-    def _execute_command(self, command: str) -> str:
-        """Legacy v1 entry point — delegates to _execute_command_v2."""
-        command_string = command["commandJson"]
-        command_json   = json.loads(command_string)
-        command_name   = command_json.get("command", "")
-        command_args   = json.dumps({k: v for k, v in command_json.items() if k != "command"})
-        self._info(message=f"Sending command: {command_string}")
-        return self._execute_command_v2(command_name, command_args)
 
     def _execute_command_v2(self, command_name: str, command_args: str) -> str:
         """
@@ -190,7 +206,7 @@ class GenericMQTT(AbstractDevice):
         ------------------
         connect
             Open the connection to the broker (and auto-subscribe any topics
-            configured in metaData.subscribe_on_connect).
+            configured in metaData.subscribe_on_connect and interval_topics).
             Returns: {"status": "ok", "connected": true, "broker": "host:port"}
 
         disconnect
@@ -230,7 +246,9 @@ class GenericMQTT(AbstractDevice):
                   qos (int, optional) — subscription QoS (default default_qos)
             Returns: {"status": "ok", "topic": "...", "message": {...}|null}
                      message is {"topic","payload","qos","retain","timestamp"}
-                     or null when no message arrived within the timeout.
+                     ("payload_hex" in place of "payload" when the payload is
+                     not decoded) or null when no message arrived within the
+                     timeout.
 
         receive
             Drain buffered inbound messages without subscribing or waiting.
@@ -240,13 +258,20 @@ class GenericMQTT(AbstractDevice):
 
         set_last_will
             Configure the Last Will and Testament the broker publishes if this
-            client disconnects ungracefully.  Must be set before connect() to
-            take effect — call this, then disconnect + connect.
-            Args: topic (str, required), payload (str|object, optional),
+            client disconnects ungracefully.  The will is stored and sent with
+            every connect from then on (until the transformer is reloaded); if
+            already connected, disconnect + connect to apply it now.
+            Args: topic (str, required, no wildcards),
+                  payload (str|object, optional),
                   qos (int, optional), retain (bool, optional)
             Returns: {"status": "ok", "will_topic": "..."}
+
+        Errors raise: 400 for missing or non-JSON args, a qos outside 0-2, a
+        wildcard will topic, or an unknown command, 503 when the broker does
+        not respond, 500 otherwise (including a publish the client rejected
+        and a non-numeric value for a numeric arg).
         """
-        args = json.loads(command_args) if command_args else {}
+        args = self._parse_args(command_args)
         self._info(message=f"Sending command: {command_name}")
 
         try:
@@ -263,14 +288,11 @@ class GenericMQTT(AbstractDevice):
                 return json.dumps({"status": "ok", "connected": False})
 
             if command_name == "publish":
-                topic = str(args.get("topic", ""))
-                if not topic:
-                    return self._err("Missing required field: topic")
+                topic = str(self._require(args, "topic"))
                 payload = args.get("payload", "")
-                qos     = int(args.get("qos", self.default_qos))
-                retain  = self._as_bool(args.get("retain", self.default_retain))
-                self._ensure_connected()
-                self._client.publish(topic, payload, qos=qos, retain=retain)
+                qos     = self._qos_arg(args)
+                retain  = self._as_bool(args.get("retain"), self.default_retain)
+                self._publish(topic, payload, qos, retain)
                 return json.dumps({
                     "status": "ok",
                     "topic": topic,
@@ -281,8 +303,8 @@ class GenericMQTT(AbstractDevice):
             if command_name == "subscribe":
                 topics = self._parse_topics(args.get("topics", ""))
                 if not topics:
-                    return self._err("Missing required field: topics")
-                qos = int(args.get("qos", self.default_qos))
+                    raise BadRequestException("Missing required arg 'topics'")
+                qos = self._qos_arg(args)
                 self._ensure_connected()
                 self._client.subscribe(topics, qos=qos)
                 return json.dumps({
@@ -294,17 +316,15 @@ class GenericMQTT(AbstractDevice):
             if command_name == "unsubscribe":
                 topics = self._parse_topics(args.get("topics", ""))
                 if not topics:
-                    return self._err("Missing required field: topics")
+                    raise BadRequestException("Missing required arg 'topics'")
                 self._ensure_connected()
                 self._client.unsubscribe(topics)
                 return json.dumps({"status": "ok", "unsubscribed": topics})
 
             if command_name == "read":
-                topic = str(args.get("topic", ""))
-                if not topic:
-                    return self._err("Missing required field: topic")
-                wait = float(args.get("timeout", self.read_timeout))
-                qos  = int(args.get("qos", self.default_qos))
+                topic = str(self._require(args, "topic"))
+                wait = float(args.get("timeout") or self.read_timeout)
+                qos  = self._qos_arg(args)
                 message = self._read_topic(topic, wait, qos)
                 return json.dumps({
                     "status": "ok",
@@ -313,7 +333,7 @@ class GenericMQTT(AbstractDevice):
                 }, default=str)
 
             if command_name == "receive":
-                buf_size = int(args.get("buffer_size", 10))
+                buf_size = int(args.get("buffer_size") or 10)
                 self._ensure_connected()
                 raw = self._client.receive(buffer_size=buf_size)
                 return json.dumps({
@@ -322,35 +342,39 @@ class GenericMQTT(AbstractDevice):
                 }, default=str)
 
             if command_name == "set_last_will":
-                topic = str(args.get("topic", ""))
-                if not topic:
-                    return self._err("Missing required field: topic")
-                payload = args.get("payload", "")
-                qos     = int(args.get("qos", self.default_qos))
-                retain  = self._as_bool(args.get("retain", self.default_retain))
-                self._ensure_connected()
-                self._client.set_last_will(topic, payload, qos=qos, retain=retain)
+                topic = str(self._require(args, "topic"))
+                if "+" in topic or "#" in topic:
+                    raise BadRequestException("Last will topic must not contain wildcards")
+                # Stored, not applied to the open connection: paho only sends the
+                # will in CONNECT, so _connect applies it to each new client.
+                self._last_will = {
+                    "topic": topic,
+                    "payload": args.get("payload", ""),
+                    "qos": self._qos_arg(args),
+                    "retain": self._as_bool(args.get("retain"), self.default_retain),
+                }
                 return json.dumps({"status": "ok", "will_topic": topic})
 
-            return self._err(f"Unknown command: '{command_name}'")
-
         except Exception as e:
-            self._error(message=f"Command '{command_name}' failed: {e}")
-            return self._err(str(e))
+            self._raise_device_error(f"Command '{command_name}'", e)
+
+        raise BadRequestException(f"Unknown command '{command_name}'")
 
     def _read_interval_data(self) -> str:
         """
-        Periodic poll. Drains the receive buffer and reports the latest message
+        Periodic poll. Drains the receive buffer and returns the latest message
         seen for each topic in metaData.interval_topics.  Those topics are
         subscribed on connect, so their messages accumulate between polls.
         Falls back to _read_status when no interval_topics are configured.
+        Never raises: when the broker is unreachable every topic reports
+        "ERROR: ...".
         """
         if not self.interval_topics:
             return json.dumps({"status": self._read_status()})
 
-        self._ensure_connected()
         latest = {t: None for t in self.interval_topics}
         try:
+            self._ensure_connected()
             raw = self._client.receive(buffer_size=self.receive_queue_maxlen)
             for msg in json.loads(raw):
                 for t in self.interval_topics:
@@ -358,7 +382,7 @@ class GenericMQTT(AbstractDevice):
                         latest[t] = msg
         except Exception as e:
             self._error(message=f"Interval read failed: {e}")
-            return self._err(str(e))
+            latest = {t: f"ERROR: {e}" for t in self.interval_topics}
         return json.dumps({"status": "ok", "values": latest}, default=str)
 
     def _read_status(self, function: str = None) -> str:
@@ -371,6 +395,8 @@ class GenericMQTT(AbstractDevice):
         When status_ok_payload is set, its presence in the payload maps to
         "RUNNING"; any other payload is returned verbatim.
         When status_ok_payload is blank, the raw payload is returned as-is.
+        No message within read_timeout (or an empty payload) returns
+        "UNAVAILABLE"; any failure returns "ERROR" (never raises).
         """
         if not self.status_topic:
             self.status = "NOT_CONFIGURED"
@@ -388,6 +414,7 @@ class GenericMQTT(AbstractDevice):
                 self.status = payload
         except Exception as e:
             self._error(message=f"Status read failed: {e}")
+            self._connected = False
             self.status = "ERROR"
 
         return self.status
@@ -397,34 +424,35 @@ class GenericMQTT(AbstractDevice):
         Read the latest payload from the topic named by variable_name.
         Subscribes to the topic and waits up to metaData.read_timeout for a
         message (a retained message arrives immediately).  Returns the payload
-        as a string, or "" when nothing arrived.
+        as a plain string.  Raises on failure: 503 when the broker does not
+        respond or no message arrives within read_timeout, 500 otherwise.
         """
         try:
             message = self._read_topic(variable_name, self.read_timeout,
                                        self.default_qos)
             if message is None:
-                return ""
+                raise ServiceUnavailableException(
+                    f"GenericMQTT: no message on topic '{variable_name}' "
+                    f"within {self.read_timeout}s"
+                )
             return str(self._payload_of(message))
         except Exception as e:
-            self._error(message=f"Read variable '{variable_name}' failed: {e}")
-            return ""
+            self._raise_device_error(f"Read variable '{variable_name}'", e)
 
     def _write_variable(self, variable_name: str, variable_value: str,
                         function: str = None) -> str:
         """
         Publish variable_value to the topic derived from variable_name via
         metaData.write_topic_template.  Published with default_qos and
-        default_retain.  Returns the published value.
+        default_retain.  Returns the published value.  Raises on failure
+        (503 when the broker does not respond, 500 otherwise).
         """
         try:
             topic = self.write_topic_template.format(name=variable_name)
-            self._ensure_connected()
-            self._client.publish(topic, variable_value,
-                                  qos=self.default_qos, retain=self.default_retain)
+            self._publish(topic, variable_value, self.default_qos, self.default_retain)
             return variable_value
         except Exception as e:
-            self._error(message=f"Write variable '{variable_name}' failed: {e}")
-            return ""
+            self._raise_device_error(f"Write variable '{variable_name}'", e)
 
     def _read_parameter(self, parameter_name: str, function: str = None) -> str:
         return self._read_variable(parameter_name, function)
@@ -454,6 +482,11 @@ class GenericMQTT(AbstractDevice):
         if self._connected and self._client is not None:
             return
 
+        # A client left over from a dropped connection still has its network
+        # thread running; stop it before replacing it.
+        if self._client is not None:
+            self._disconnect()
+
         self._client = MQTT(
             host=self.host,
             port=self.port,
@@ -473,10 +506,15 @@ class GenericMQTT(AbstractDevice):
             decode_payloads=self.decode_payloads,
         )
 
+        # paho sends the will only in CONNECT, so it goes on before connect().
+        if self._last_will is not None:
+            self._client.set_last_will(**self._last_will)
+
         rc = self._client.connect()
         if rc != 0:
-            self._connected = False
-            raise ConnectionError(
+            # Stop the network thread a timed-out attempt may have started.
+            self._disconnect()
+            raise ServiceUnavailableException(
                 f"GenericMQTT: connect failed (broker={self.host}:{self.port})"
             )
 
@@ -502,6 +540,31 @@ class GenericMQTT(AbstractDevice):
     def _ensure_connected(self) -> None:
         if not self._connected or self._client is None:
             self._connect()
+
+    def _publish(self, topic: str, payload, qos: int, retain: bool) -> None:
+        """
+        Publish one message; raise ServerErrorException when the client rejected
+        it (paho raised).  MQTT.publish() discards the result, so this goes
+        through MQTT.send(), which returns how many publish calls did not raise.
+        paho's return code is not checked, so a publish paho drops without
+        raising still counts as sent.
+        """
+        self._ensure_connected()
+        sent = self._client.send(MqttPublish(topic=topic, payload=payload,
+                                             qos=qos, retain=retain))
+        if sent < 1:
+            raise ServerErrorException(
+                f"GenericMQTT: publish to '{topic}' was rejected by the client "
+                "(invalid topic or payload?)"
+            )
+
+    def _qos_arg(self, args: dict) -> int:
+        """QoS from command args (0, 1 or 2); missing or blank uses metaData.default_qos."""
+        qos = args.get("qos")
+        qos = self.default_qos if qos in (None, "") else int(qos)
+        if qos not in (0, 1, 2):
+            raise BadRequestException(f"qos must be 0, 1 or 2 (got {qos})")
+        return qos
 
     def _read_topic(self, topic: str, timeout: float, qos: int) -> Optional[dict]:
         """
@@ -573,16 +636,71 @@ class GenericMQTT(AbstractDevice):
                 return False
         return len(f) == len(t)
 
+    # ############################################################################## #
+    # STANDARD HELPERS (identical in every transformer)
+    # ############################################################################## #
+
+    def _execute_command(self, command) -> str:
+        """
+        Legacy command path, used by Edge HMI control buttons
+        (POST /devices/<id>/execute_command). Hands off to _execute_command_v2.
+        commandJson may be {"command": "x", "args": {...}} or {"command": "x", <args>}.
+        """
+        raw = command.get("commandJson") or "{}"
+        command_json = json.loads(raw) if isinstance(raw, str) else raw
+        args = command_json.get("args")
+        if not isinstance(args, dict):
+            args = {k: v for k, v in command_json.items() if k != "command"}
+        return self._execute_command_v2(command_json.get("command", ""), json.dumps(args))
+
     @staticmethod
-    def _as_bool(value) -> bool:
-        """Coerce metaData/command values to bool ('true'/'1' → True)."""
+    def _parse_args(command_args) -> dict:
+        """
+        Parse command_args (the raw request body). Accepts empty, a JSON object, or the
+        documented wrapper {"value": "<JSON object string>"}. The wrapper is only unwrapped
+        when "value" is the only key, so a real "value" arg is left alone.
+        """
+        if not command_args:
+            return {}
+        try:
+            args = json.loads(command_args) if isinstance(command_args, (str, bytes)) else command_args
+            if isinstance(args, dict) and list(args) == ["value"]:
+                inner = args["value"]
+                if isinstance(inner, str) and inner.strip().startswith("{"):
+                    inner = json.loads(inner)
+                if isinstance(inner, dict):
+                    return inner
+        except ValueError as e:
+            raise BadRequestException(f"Command args are not valid JSON: {e}")
+        if not isinstance(args, dict):
+            raise BadRequestException("Command args must be a JSON object")
+        return args
+
+    @staticmethod
+    def _require(args: dict, key: str):
+        """Return args[key], or raise BadRequestException (HTTP 400) when it is missing or blank."""
+        if args.get(key) in (None, ""):
+            raise BadRequestException(f"Missing required arg '{key}'")
+        return args[key]
+
+    @staticmethod
+    def _as_bool(value, default: bool = False) -> bool:
+        """metaData / arg booleans: accepts True/False, "true"/"false" (any case), "1"/"0", "yes"/"no"."""
         if isinstance(value, bool):
             return value
-        return str(value).strip().lower() in ("true", "1", "yes")
+        if value is None or str(value).strip() == "":
+            return default
+        return str(value).strip().lower() in ("1", "true", "yes", "on")
 
-    def _err(self, message: str) -> str:
-        try:
-            self._error(message=message)
-        except Exception:
-            pass
-        return json.dumps({"status": "error", "message": str(message)}, default=str)
+    def _raise_device_error(self, action: str, error: Exception):
+        """
+        Re-raise a failed device call as the runtime exception the API turns into an HTTP error:
+        runtime/HTTP exceptions pass through unchanged; network errors -> 503 (and the transformer
+        is marked disconnected so the next call reconnects); anything else -> 500.
+        """
+        if isinstance(error, (FlexxCoreException, HTTPException)):
+            raise error
+        if isinstance(error, (OSError, TimeoutError, ConnectionError)):
+            self._connected = False
+            raise ServiceUnavailableException(f"{action}: device did not respond ({error})") from error
+        raise ServerErrorException(f"{action} failed: {error}") from error

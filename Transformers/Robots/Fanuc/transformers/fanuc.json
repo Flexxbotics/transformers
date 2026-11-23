@@ -2,28 +2,26 @@
   "_class": "Fanuc",
   "transformer": "fanuc",
   "commands": {
+    "connect": {},
+    "disconnect": {},
     "set_digital_output": {
       "output": "",
       "value": false
     },
     "set_int_register": {
-      "register": {
-        "numberLong": "0"
-      },
-      "value": {
-        "numberLong": "0"
-      }
+      "register": "0",
+      "value": "0"
     },
     "set_str_register": {
-      "register": {
-        "numberLong": "0"
-      },
+      "register": "0",
       "value": ""
     }
   },
   "metaData": {
     "ip_address": "",
     "port": "3080",
-    "ftp_path": ""
+    "ftp_path": "",
+    "ftp_username": "flexxbotics",
+    "ftp_password": "flexxbotics"
   }
 }

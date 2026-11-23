@@ -19,8 +19,16 @@ import json
 import base64
 from typing import List, Optional
 
+from werkzeug.exceptions import HTTPException
+
 from data_models.device import Device
 from transformers.abstract_device import AbstractDevice
+from exceptions.flexxCoreExceptions import (
+    FlexxCoreException,
+    BadRequestException,
+    ServerErrorException,
+    ServiceUnavailableException,
+)
 from protocols.tcp import TCP
 
 
@@ -47,7 +55,8 @@ class GenericTCP(AbstractDevice):
     timeout             : Socket timeout in seconds (default 2.0)
     retry               : Connection retry attempts (default 2)
     retry_interval      : Seconds between retries (default 0.1)
-    encoding            : Character encoding for send/receive (default "utf-8")
+    encoding            : Character encoding for outgoing text (default "utf-8").
+                          Replies are always decoded as UTF-8.
     response_time       : Seconds to wait after sending before reading
                           (default 0.1)
     buffer_size         : Receive buffer size in bytes (default 1024)
@@ -72,11 +81,28 @@ class GenericTCP(AbstractDevice):
     * _write_variable / _write_parameter format write_template with {name}
       and {value}, then append command_terminator.
     * With keep_alive=true the transformer reuses an open socket and calls
-      send_without_connect() for each operation.  The connection is
-      re-established automatically on any socket error.
+      send_without_connect() for each operation.  A send/receive error (or a
+      connection the device closed) is not raised: the TCP client closes the
+      socket, that call returns "", and the next call reconnects.
     * With keep_alive=false (default) every send() call opens a fresh
       connection, which is more robust for intermittent devices but adds
       latency on high-frequency polling.
+    * Replies to send, send_bytes and the read/write/status methods come from
+      a single recv() of up to buffer_size bytes, with every space, CR, LF,
+      ">", 0x02 and 0x17 removed by the TCP client.  An unreachable or silent
+      device gives an empty reply, not an error.
+
+    Errors
+    ------
+    Failures raise the runtime's exceptions, which the API returns as HTTP
+    errors carrying the message: BadRequestException (400) for missing or
+    non-JSON args, bad hex_data or an unknown command,
+    ServiceUnavailableException (503) when the transformer's held connection
+    (keep_alive=true, or the connect and receive commands) cannot be opened
+    or a receive command fails, ServerErrorException (500) for anything else.
+    A device that is unreachable or silent during send, send_bytes or a
+    read/write/status call is not an error: the reply is "".  _read_status
+    never raises (it returns "ERROR"), and neither does _read_interval_data.
     """
 
     def __init__(self, device: Device):
@@ -95,9 +121,7 @@ class GenericTCP(AbstractDevice):
         self.write_template     = self.meta_data.get("write_template", "{name} {value}")
         self.status_command     = self.meta_data.get("status_command", "").strip()
         self.status_ok_response = self.meta_data.get("status_ok_response", "").strip()
-        self.keep_alive         = (
-            self.meta_data.get("keep_alive", "false").strip().lower() == "true"
-        )
+        self.keep_alive         = self._as_bool(self.meta_data.get("keep_alive", False))
         self.interval_commands  = [
             c.strip()
             for c in self.meta_data.get("interval_commands", "").split(",")
@@ -123,15 +147,6 @@ class GenericTCP(AbstractDevice):
     # DEVICE COMMUNICATION METHODS
     # ############################################################################## #
 
-    def _execute_command(self, command: str) -> str:
-        """Legacy v1 entry point — delegates to _execute_command_v2."""
-        command_string = command["commandJson"]
-        command_json   = json.loads(command_string)
-        command_name   = command_json.get("command", "")
-        command_args   = json.dumps({k: v for k, v in command_json.items() if k != "command"})
-        self._info(message=f"Sending command: {command_string}")
-        return self._execute_command_v2(command_name, command_args)
-
     def _execute_command_v2(self, command_name: str, command_args: str) -> str:
         """
         Execute a named TCP command.
@@ -155,20 +170,32 @@ class GenericTCP(AbstractDevice):
             Returns: {"status": "ok", "command": "...", "response": "..."}
 
         send_bytes
-            Send a hex-encoded byte payload and receive the response as hex.
-            Useful for binary protocols where commands are not printable ASCII.
+            Send a hex-encoded byte payload and return the reply as hex.
+            Only the outgoing bytes are raw: the reply is decoded as UTF-8 and
+            cleaned like any other reply (see the class Usage notes) before it
+            is re-encoded with metaData.encoding, so a binary reply loses
+            bytes, and one that is not valid UTF-8 comes back as "".
             Args: hex_data (str, required) — hex string, e.g. "0A0D4654"
                   response_time (float, optional)
                   buffer_size (int, optional)
             Returns: {"status": "ok", "response_hex": "..."}
 
         receive
-            Receive data from an already-open socket without sending first.
-            Requires keep_alive=true (or a prior explicit connect command).
+            Receive data on the transformer's held socket without sending
+            first, opening it if needed.  With keep_alive=false, send and the
+            read/write methods use their own per-call sockets, so their
+            replies never arrive here.  The decoded text is returned without
+            the cleaning send applies; 503 if nothing arrives within
+            metaData.timeout.
             Args: buffer_size (int, optional)
             Returns: {"status": "ok", "response": "..."}
+
+        Errors raise: 400 for missing or non-JSON args, bad hex_data or an
+        unknown command, 503 when the held connection cannot be opened or a
+        receive fails, 500 otherwise.  An unreachable or silent device during
+        send or send_bytes is not an error: the reply is "".
         """
-        args = json.loads(command_args) if command_args else {}
+        args = self._parse_args(command_args)
         self._info(message=f"Sending command: {command_name}")
 
         try:
@@ -185,12 +212,10 @@ class GenericTCP(AbstractDevice):
                 return json.dumps({"status": "ok", "connected": False})
 
             if command_name == "send":
-                raw_cmd    = str(args.get("command", ""))
+                raw_cmd    = str(self._require(args, "command"))
                 terminator = args.get("terminator", self.command_terminator)
-                resp_time  = float(args.get("response_time", self.response_time))
-                buf_size   = int(args.get("buffer_size", self.buffer_size))
-                if not raw_cmd:
-                    return self._err("Missing required field: command")
+                resp_time  = float(args.get("response_time") or self.response_time)
+                buf_size   = int(args.get("buffer_size") or self.buffer_size)
                 response = self._send(raw_cmd + terminator, resp_time, buf_size)
                 return json.dumps({
                     "status": "ok",
@@ -199,27 +224,27 @@ class GenericTCP(AbstractDevice):
                 })
 
             if command_name == "send_bytes":
-                hex_data  = str(args.get("hex_data", ""))
-                resp_time = float(args.get("response_time", self.response_time))
-                buf_size  = int(args.get("buffer_size", self.buffer_size))
-                if not hex_data:
-                    return self._err("Missing required field: hex_data")
-                raw_bytes = bytes.fromhex(hex_data)
+                hex_data  = str(self._require(args, "hex_data"))
+                resp_time = float(args.get("response_time") or self.response_time)
+                buf_size  = int(args.get("buffer_size") or self.buffer_size)
+                try:
+                    raw_bytes = bytes.fromhex(hex_data)
+                except ValueError:
+                    raise BadRequestException(f"hex_data is not valid hex: {hex_data!r}")
                 response  = self._send_bytes(raw_bytes, resp_time, buf_size)
                 resp_hex  = response.encode(self.encoding).hex() if response else ""
                 return json.dumps({"status": "ok", "response_hex": resp_hex})
 
             if command_name == "receive":
                 self._ensure_connected()
-                buf_size = int(args.get("buffer_size", self.buffer_size))
+                buf_size = int(args.get("buffer_size") or self.buffer_size)
                 response = self._client.receive(buffer_size=buf_size)
                 return json.dumps({"status": "ok", "response": response})
 
-            return self._err(f"Unknown command: '{command_name}'")
-
         except Exception as e:
-            self._error(message=f"Command '{command_name}' failed: {e}")
-            return self._err(str(e))
+            self._raise_device_error(f"Command '{command_name}'", e)
+
+        raise BadRequestException(f"Unknown command '{command_name}'")
 
     def _read_interval_data(self) -> str:
         """
@@ -252,6 +277,10 @@ class GenericTCP(AbstractDevice):
         When status_ok_response is set, its presence in the response maps to
         "RUNNING"; any other response is returned verbatim.
         When status_ok_response is blank, the raw response is returned as-is.
+        An empty response (what an unreachable or silent device gives) returns
+        "UNAVAILABLE" when status_ok_response is blank, and "" (no status to
+        report) when it is set.  A failure that raises (e.g. keep_alive=true
+        and the connection cannot be opened) returns "ERROR".
         """
         if not self.status_command:
             self.status = "NOT_CONFIGURED"
@@ -269,14 +298,18 @@ class GenericTCP(AbstractDevice):
                 self.status = response if response else "UNAVAILABLE"
         except Exception as e:
             self._error(message=f"Status read failed: {e}")
+            self._connected = False
             self.status = "ERROR"
 
         return self.status
 
     def _read_variable(self, variable_name: str, function: str = None) -> str:
         """
-        Send variable_name as the TCP command and return the response.
-        metaData.command_terminator is appended automatically.
+        Send variable_name as the TCP command and return the response as a
+        plain string.  metaData.command_terminator is appended automatically.
+        An unreachable or silent device returns "" rather than raising.
+        Raises 503 when keep_alive=true and the connection cannot be opened,
+        500 on other failures.
         """
         try:
             return self._send(
@@ -285,23 +318,24 @@ class GenericTCP(AbstractDevice):
                 self.buffer_size,
             )
         except Exception as e:
-            self._error(message=f"Read variable '{variable_name}' failed: {e}")
-            return ""
+            self._raise_device_error(f"Read variable '{variable_name}'", e)
 
     def _write_variable(self, variable_name: str, variable_value: str,
                         function: str = None) -> str:
         """
         Format metaData.write_template with {name} and {value}, then send it.
         metaData.command_terminator is appended automatically.
-        Returns the device response.
+        Returns the device response ("" when the device is unreachable or
+        silent, rather than raising).  Raises 503 when keep_alive=true and the
+        connection cannot be opened, 500 on other failures (e.g. a bad
+        write_template).
         """
         try:
             cmd = self.write_template.format(name=variable_name, value=variable_value)
             return self._send(cmd + self.command_terminator,
                               self.response_time, self.buffer_size)
         except Exception as e:
-            self._error(message=f"Write variable '{variable_name}' failed: {e}")
-            return ""
+            self._raise_device_error(f"Write variable '{variable_name}'", e)
 
     def _read_parameter(self, parameter_name: str, function: str = None) -> str:
         return self._read_variable(parameter_name, function)
@@ -341,7 +375,7 @@ class GenericTCP(AbstractDevice):
         rc = self._client.connect()
         if rc != 0:
             self._connected = False
-            raise ConnectionError(
+            raise ServiceUnavailableException(
                 f"GenericTCP: connect failed ({self.ip_address}:{self.port})"
             )
         self._connected = True
@@ -435,9 +469,71 @@ class GenericTCP(AbstractDevice):
                 close_connection=True,
             )
 
-    def _err(self, message: str) -> str:
+    # ############################################################################## #
+    # STANDARD HELPERS (identical in every transformer)
+    # ############################################################################## #
+
+    def _execute_command(self, command) -> str:
+        """
+        Legacy command path, used by Edge HMI control buttons
+        (POST /devices/<id>/execute_command). Hands off to _execute_command_v2.
+        commandJson may be {"command": "x", "args": {...}} or {"command": "x", <args>}.
+        """
+        raw = command.get("commandJson") or "{}"
+        command_json = json.loads(raw) if isinstance(raw, str) else raw
+        args = command_json.get("args")
+        if not isinstance(args, dict):
+            args = {k: v for k, v in command_json.items() if k != "command"}
+        return self._execute_command_v2(command_json.get("command", ""), json.dumps(args))
+
+    @staticmethod
+    def _parse_args(command_args) -> dict:
+        """
+        Parse command_args (the raw request body). Accepts empty, a JSON object, or the
+        documented wrapper {"value": "<JSON object string>"}. The wrapper is only unwrapped
+        when "value" is the only key, so a real "value" arg is left alone.
+        """
+        if not command_args:
+            return {}
         try:
-            self._error(message=message)
-        except Exception:
-            pass
-        return json.dumps({"status": "error", "message": str(message)}, default=str)
+            args = json.loads(command_args) if isinstance(command_args, (str, bytes)) else command_args
+            if isinstance(args, dict) and list(args) == ["value"]:
+                inner = args["value"]
+                if isinstance(inner, str) and inner.strip().startswith("{"):
+                    inner = json.loads(inner)
+                if isinstance(inner, dict):
+                    return inner
+        except ValueError as e:
+            raise BadRequestException(f"Command args are not valid JSON: {e}")
+        if not isinstance(args, dict):
+            raise BadRequestException("Command args must be a JSON object")
+        return args
+
+    @staticmethod
+    def _require(args: dict, key: str):
+        """Return args[key], or raise BadRequestException (HTTP 400) when it is missing or blank."""
+        if args.get(key) in (None, ""):
+            raise BadRequestException(f"Missing required arg '{key}'")
+        return args[key]
+
+    @staticmethod
+    def _as_bool(value, default: bool = False) -> bool:
+        """metaData / arg booleans: accepts True/False, "true"/"false" (any case), "1"/"0", "yes"/"no"."""
+        if isinstance(value, bool):
+            return value
+        if value is None or str(value).strip() == "":
+            return default
+        return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+    def _raise_device_error(self, action: str, error: Exception):
+        """
+        Re-raise a failed device call as the runtime exception the API turns into an HTTP error:
+        runtime/HTTP exceptions pass through unchanged; network errors -> 503 (and the transformer
+        is marked disconnected so the next call reconnects); anything else -> 500.
+        """
+        if isinstance(error, (FlexxCoreException, HTTPException)):
+            raise error
+        if isinstance(error, (OSError, TimeoutError, ConnectionError)):
+            self._connected = False
+            raise ServiceUnavailableException(f"{action}: device did not respond ({error})") from error
+        raise ServerErrorException(f"{action} failed: {error}") from error

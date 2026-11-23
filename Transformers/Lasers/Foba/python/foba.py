@@ -22,7 +22,13 @@ from transformers.abstract_device import AbstractDevice
 from dataclasses import dataclass, field
 from typing import Callable, Any
 from enum import Enum
-from flask import current_app
+from werkzeug.exceptions import HTTPException
+from exceptions.flexxCoreExceptions import (
+    FlexxCoreException,
+    BadRequestException,
+    ServerErrorException,
+    ServiceUnavailableException,
+)
 from repos.run_records.run_record_document import RunRecordDocument
 
 @dataclass(frozen=True)
@@ -53,6 +59,8 @@ class LaserCommand:
 
     def parse(self, raw: str) -> dict:
         parts = raw.strip().split(":")
+        if len(parts) < 2:
+            raise ServerErrorException(f"{self.command}: unexpected reply from laser: {raw!r}")
         data = parts[1].split(";")
         code = data[0]
         return {
@@ -130,26 +138,34 @@ class FOBA(AbstractDevice):
 
     def __init__(self, device: Device):
         """
-        Template device class. Inherits AbstractDevice class.
+        FOBA laser marker device class (ASCII commands over TCP).
 
-        :param Device:
+        :param device:
                     the device object
 
         :return:    a new instance
         """
         # Get meta data of the device from its attributes, this contains information such as: ip address, ports, etc
         super().__init__(device)
-        self.meta_data = device.metaData
-        self.address = self.meta_data["ip_address"]
-        self.port = self.meta_data["port"]
-        self._logger = current_app.config["logger"]
+        self.meta_data = device.metaData or {}
+        self.address = self.meta_data.get("ip_address", "")
+        self.port = str(self.meta_data.get("port", ""))
+        if not self.address:
+            raise ValueError("FOBA: metaData must contain 'ip_address'")
+        if not self.port:
+            raise ValueError("FOBA: metaData must contain 'port'")
 
-        self.client = TCP(address=self.address, port=self.port)
+        # protocols.tcp.TCP opens and closes a socket on every send(); _connect() creates the client
+        self.client = None
+        self._connected = False
         self.variable_service = self.core_services.variable_service
         self.alignment_data = {}
 
     def __del__(self):
-        pass
+        try:
+            self._disconnect()
+        except Exception:
+            pass
 
     # ############################################################################## #
     # DEVICE COMMUNICATION METHODS
@@ -159,35 +175,59 @@ class FOBA(AbstractDevice):
         """
         Executes the command sent to the device.
 
+        Supported commands
+        ------------------
+        connect / disconnect
+            Returns: {"status": "ok", "connected": true|false}
+        get_alignment_status
+            Args: layout_position (optional, default 0), mark_set_index (optional, default 0)
+            Returns: {"status": "ok", "value": "OK" | "NotProcessed"}
+        get_alignment_data
+            Args: data (required) - a key of the last alignment result, e.g. "x_offset"
+            Returns: {"status": "ok", "value": "<value>"}
+        get_active_order
+            Returns: {"status": "ok", "value": "<run record name>" | ""}
+        run_program
+            Starts the loaded job. Returns: {"status": "ok", "value": "OK"}
+
+        Errors raise: 400 for missing args or an unknown command, 500 when the laser
+        does not respond or replies with an error (protocols.tcp.TCP does not raise
+        network errors, so there is no 503).
+
         :param command_name:
                     the command to be executed
         :param command_args:
                     json with the arguments for the command
 
         :return:    the response after execution of command.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         # Parse the command from the incoming request
-        args = json.loads(command_args)
-        response = ""
+        args = self._parse_args(command_args)
 
         self._info(message="Sending command: " + command_name)
         try:
+            if command_name == "connect":
+                self._connect()
+                return json.dumps({"status": "ok", "connected": True})
+            if command_name == "disconnect":
+                self._disconnect()
+                return json.dumps({"status": "ok", "connected": False})
             if command_name == "get_alignment_status":
                 layout_position = args.get("layout_position", 0)
                 mark_set_index = args.get("mark_set_index", 0)
                 data = FobaCmd.GETALIGNMENTSTATUS.value.build(layout_position, mark_set_index)
                 self._info(message=data)
+                self._ensure_connected()
                 raw = self.client.send(data=data, encoding="ascii", response_time=0.5)
                 command_response = FobaCmd.GETALIGNMENTSTATUS.value.parse(raw)
                 self._info(message=command_response)
                 if command_response["meaning"] != "OK":
-                    return "ERROR"
+                    raise ServerErrorException(
+                        f"GETALIGNMENTSTATUS failed: {command_response['meaning']} ({command_response['code']})"
+                    )
                 extra = command_response["extra"]
                 if extra[0] == "NotProcessed":
-                    return "NotProcessed"
+                    return json.dumps({"status": "ok", "value": "NotProcessed"})
                 self.alignment_data = {
                     "result": extra[0],
                     "type": extra[1],
@@ -209,231 +249,142 @@ class FOBA(AbstractDevice):
                 #self.variable_service.update_device_variable_latest_value_by_name("69dd7a3dfca98ab7d3e71932", "y_offset", self.alignment_data["y_offset"])
                 #self.variable_service.update_device_variable_latest_value_by_name("69dd7a3dfca98ab7d3e71932", "error", self.alignment_data["error"])
                 #self.variable_service.update_device_variable_latest_value_by_name("69dd7a3dfca98ab7d3e71932", "angle", self.alignment_data["angle"])
-                response = command_response["meaning"]
+                return json.dumps({"status": "ok", "value": command_response["meaning"]})
             if command_name == "get_alignment_data":
-                data_index = args.get("data", "")
-                return self.alignment_data[data_index]
+                data_index = self._require(args, "data")
+                if data_index not in self.alignment_data:
+                    raise BadRequestException(
+                        f"No alignment data '{data_index}' (run get_alignment_status first)"
+                    )
+                return json.dumps({"status": "ok", "value": self.alignment_data[data_index]}, default=str)
             if command_name == "get_active_order":
                 work_cell = self._work_cell_service.get_work_cell()
                 run_record = RunRecordDocument.objects(
                     workCellId=str(work_cell.id), isCompleted=False
                 ).first()
-                return str(run_record.name) if run_record else ""
+                return json.dumps({"status": "ok", "value": str(run_record.name) if run_record else ""})
+            if command_name == "run_program":
+                status = self._run_program()
+                if status != "OK":
+                    raise ServerErrorException(f"STARTJOB failed: {status}")
+                return json.dumps({"status": "ok", "value": status})
 
         except Exception as e:
-            raise Exception(
-                "Error when sending command, did not get response from device: "
-                + command_name
-            )
-        finally:
-            pass
+            self._raise_device_error(f"Command '{command_name}'", e)
 
-        return response
+        raise BadRequestException(f"Unknown command '{command_name}'")
 
-    def read_interval_data(self) -> str:
+    def _read_interval_data(self) -> str:
         """
-        Method to read the status of the device on an interval
+        Not used by this transformer: does nothing.
 
-        :return:    status - string
-
-        :author:    tylerjm@flexxbotics.com
-        :author:    sanua@flexxbotics.com
-
-        :since:     ODOULS.3 (7.1.15.3)
+        :return:    None
         """
         pass
 
-    def read_status(self, function: str = None) -> str:
+    def _read_status(self, function: str = None) -> str:
         """
         Method to read the status of the device
 
         :param function:
-                    Optional parameter to provide the name of a function to run - string
+                    Ignored
 
-        :return:    status - string
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
+        :return:    status - the laser's GETSTATUS meaning ("IDLE", "RUNNING", "OFFLINE", ...),
+                    or "ERROR" when the laser cannot be read
         """
-        status = ""
-        if function is None:
+        try:
+            self._ensure_connected()
             data = FobaCmd.STATUS.value.build()
             raw = self.client.send(data=data, encoding="ascii", response_time=0.5)
-            status = FobaCmd.STATUS.value.parse(raw=raw)["meaning"]
-        elif function == "":  # Some string
-            # Write specific function call to read status
-            pass
-        else:
-            pass
+            return FobaCmd.STATUS.value.parse(raw=raw)["meaning"]
+        except Exception as e:
+            self._error(message=f"Status read failed: {e}")
+            self._connected = False
+            return "ERROR"
 
-        return status
-
-    def read_variable(self, variable_name: str, function: str = None) -> str:
+    def _read_variable(self, variable_name: str, function: str = None) -> str:
         """
         Method to read the specified variable from the device
 
         :param variable_name:
-                    The name of the variable to read - string
+                    The Mark-US variable name (GETVAR) - string
 
         :param function:
-                    Optional parameter to provide the name of a function to run - string
+                    Ignored
 
-        :return:    value - string
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
+        :return:    value - string. Raises 500 on failure (the laser does not respond or
+                    replies with an error).
         """
-        value = ""
-        if function is None:
+        try:
+            self._ensure_connected()
             data = FobaCmd.READ.value.build(variable_name)
             raw = self.client.send(data=data, encoding="ascii", response_time=0.5)
             result = FobaCmd.READ.value.parse(raw)
             if result["meaning"] != "OK":
-                self._error(
-                    message="Error reading variable '"
+                raise ServerErrorException(
+                    "Error reading variable '"
                     + str(variable_name)
                     + "' from device: "
                     + result["meaning"]
                 )
-            else:
-                value = result["extra"][0] if result["extra"] else ""
-        elif function == "":  # Some string
-            # Write specific function call to read variable
-            pass
-        else:
-            pass
+            return result["extra"][0] if result["extra"] else ""
+        except Exception as e:
+            self._raise_device_error(f"Read variable '{variable_name}'", e)
 
-        return value
-
-    def write_variable(
+    def _write_variable(
         self, variable_name: str, variable_value: str, function: str = None
     ) -> str:
         """
         Method to write the specified variable on the device
 
         :param variable_name:
-                    The name of the variable to write - string
+                    The Mark-US variable name (SETVAR) - string
 
         :param variable_value:
                     The value of the variable to write - string
 
         :param function:
-                    Optional parameter to provide the name of a function to run - string
+                    Ignored
 
-        :return:    value - string
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
+        :return:    the written value - string. Raises on failure.
         """
-        value = ""
-        if function is None:
+        try:
+            self._ensure_connected()
             data = FobaCmd.WRITE.value.build(variable_name, variable_value)
             raw = self.client.send(data=data, encoding="ascii", response_time=0.5)
             result = FobaCmd.WRITE.value.parse(raw)
             if result["meaning"] != "OK":
-                self._error(
-                    message="Error writing variable '"
+                raise ServerErrorException(
+                    "Error writing variable '"
                     + str(variable_name)
                     + "' to device: "
                     + result["meaning"]
                 )
-            else:
-                value = variable_value
-        elif function == "":  # Some string
-            # Write specific function call to write variable
-            pass
-        else:
-            pass
+            return str(variable_value)
+        except Exception as e:
+            self._raise_device_error(f"Write variable '{variable_name}'", e)
 
-        return value
-
-    def write_parameter(
+    def _write_parameter(
         self, parameter_name: str, parameter_value: str, function: str = None
     ) -> str:
         """
-        Method to write the specified parameter on the device
-
-        :param parameter:
-                    The parameter to write - string
-
-        :param parameter:
-                    The value of the parameter to write - string
-
-        :param function:
-                    Optional parameter to provide the name of a function to run - string
-
-        :return:    value - string
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
+        Method to write the specified parameter on the device. The laser has no separate
+        parameter concept; this writes the Mark-US variable of that name.
         """
-        value = ""
-        if function is None:
-            data = FobaCmd.WRITE.value.build(parameter_name, parameter_value)
-            raw = self.client.send(data=data, encoding="ascii", response_time=0.5)
-            result = FobaCmd.WRITE.value.parse(raw)
-            if result["meaning"] != "OK":
-                self._error(
-                    message="Error writing parameter '"
-                    + str(parameter_name)
-                    + "' to device: "
-                    + result["meaning"]
-                )
-            else:
-                value = parameter_value
-        elif function == "":  # Some string
-            # Write specific function call to write parameter
-            pass
-        else:
-            pass
+        return self._write_variable(parameter_name, parameter_value, function)
 
-        return value
-
-    def read_parameter(self, parameter_name: str, function: str = None) -> str:
+    def _read_parameter(self, parameter_name: str, function: str = None) -> str:
         """
-        Method to read the specified parameter from the device
-
-        :param parameter:
-                    The parameter to write - string
-
-        :param function:
-                    Optional parameter to provide the name of a function to run - string
-
-        :return:    value - string
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
+        Method to read the specified parameter from the device. The laser has no separate
+        parameter concept; this reads the Mark-US variable of that name.
         """
-        value = ""
-        if function is None:
-            data = FobaCmd.READ.value.build(parameter_name)
-            raw = self.client.send(data=data, encoding="ascii", response_time=0.5)
-            result = FobaCmd.READ.value.parse(raw)
-            if result["meaning"] != "OK":
-                self._error(
-                    message="Error reading parameter '"
-                    + str(parameter_name)
-                    + "' from device: "
-                    + result["meaning"]
-                )
-            else:
-                value = result["extra"][0] if result["extra"] else ""
-        elif function == "":  # Some string
-            # Write specific function call to read variable
-            pass
-        else:
-            pass
+        return self._read_variable(parameter_name, function)
 
-        return value
-
-    def read_file_names(self) -> list:
+    def _read_file_names(self) -> list:
         """
-        Method to get a list of filenames from the device
+        Not implemented: does not contact the laser.
 
-        :return:    list of filenames
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     KEYSTONE.4 (7.1.11.4)
+        :return:    an empty list
         """
 
         # Return list of available filenames from the device
@@ -441,68 +392,50 @@ class FOBA(AbstractDevice):
 
         return self.programs  # TODO is this the actual response object we want?
 
-    def read_file(self, file_name: str) -> str:
+    def _write_file(self, file_name: str, file_data: str):
         """
-        Method to read a file from a device
-
-        :param file_name:
-                    the name of the file to read.
-
-        :return:    the file's data as base64 string.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     KEYSTONE.4 (7.1.11.4)
-        """
-        # Reads the file content off the device
-        file_data = ""
-
-        return base64.b64encode(file_data)
-
-    def write_file(self, file_name: str, file_data: str):
-        """
-        Method to write a file to a device
+        Not implemented: does nothing.
 
         :param file_name:
                     the name of the file to write.
         :param file_data:
                     the data of the file to write as base64 string.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         pass
 
-    def load_file(self, file_name: str):
+    def _load_file(self, file_name: str):
         """
         Loads a file into memory on the device
 
         :param file_name: the name of the file to load into memory
-        :return: the file name
-
-        :author:    zacc@flexxbotics.com
-        :since:     MODELO.3 (7.1.13.3)
+        :return: the laser's LOADJOB meaning ("OK", "FILE NOT FOUND", "BUSY", ...)
         """
-        data = FobaCmd.LOAD.value.build(file_name)
-        raw = self.client.send(data=data, encoding="ascii", response_time=0.5)
-        status = FobaCmd.LOAD.value.parse(raw=raw)["meaning"]
-        return status
+        try:
+            self._ensure_connected()
+            data = FobaCmd.LOAD.value.build(file_name)
+            raw = self.client.send(data=data, encoding="ascii", response_time=0.5)
+            status = FobaCmd.LOAD.value.parse(raw=raw)["meaning"]
+            return status
+        except Exception as e:
+            self._raise_device_error(f"Load file '{file_name}'", e)
 
-    def run_program(self, function: str = None) -> str:
+    def _run_program(self, function: str = None) -> str:
         """
             Method to run the active program on the device
 
             :param function:
-                        Optional parameter to provide the name of a function to run - string
+                        Ignored
 
-            :return:    value - string
-
-            :author:    tylerjm@flexxbotics.com
-            :since:     P.2 (7.1.16.2)
+            :return:    the laser's STARTJOB meaning ("OK", "BUSY", "NO JOB", ...)
         """
-        data = FobaCmd.RUN.value.build()
-        raw = self.client.send(data=data, encoding="ascii", response_time=0.5)
-        status = FobaCmd.RUN.value.parse(raw=raw)["meaning"]
-        return status
+        try:
+            self._ensure_connected()
+            data = FobaCmd.RUN.value.build()
+            raw = self.client.send(data=data, encoding="ascii", response_time=0.5)
+            status = FobaCmd.RUN.value.parse(raw=raw)["meaning"]
+            return status
+        except Exception as e:
+            self._raise_device_error("Run program", e)
 
     # ############################################################################## #
     # INTERFACE HELPER METHODS
@@ -511,3 +444,88 @@ class FOBA(AbstractDevice):
     # any specific functions that are needed to communicate via the transformer. For example,
     # connection methods, read/write methods, specific functions, etc.
     # ############################################################################## #
+
+    def _connect(self) -> None:
+        if self._connected and self.client is not None:
+            return
+        # No probe: protocols.tcp.TCP opens and closes a socket on every send()
+        self.client = TCP(address=self.address, port=self.port)
+        self._connected = True
+
+    def _disconnect(self) -> None:
+        # Nothing is held open between calls; just drop the client
+        self.client = None
+        self._connected = False
+
+    def _ensure_connected(self) -> None:
+        if not self._connected or self.client is None:
+            self._connect()
+
+    # ############################################################################## #
+    # STANDARD HELPERS (identical in every transformer)
+    # ############################################################################## #
+
+    def _execute_command(self, command) -> str:
+        """
+        Legacy command path, used by Edge HMI control buttons
+        (POST /devices/<id>/execute_command). Hands off to _execute_command_v2.
+        commandJson may be {"command": "x", "args": {...}} or {"command": "x", <args>}.
+        """
+        raw = command.get("commandJson") or "{}"
+        command_json = json.loads(raw) if isinstance(raw, str) else raw
+        args = command_json.get("args")
+        if not isinstance(args, dict):
+            args = {k: v for k, v in command_json.items() if k != "command"}
+        return self._execute_command_v2(command_json.get("command", ""), json.dumps(args))
+
+    @staticmethod
+    def _parse_args(command_args) -> dict:
+        """
+        Parse command_args (the raw request body). Accepts empty, a JSON object, or the
+        documented wrapper {"value": "<JSON object string>"}. The wrapper is only unwrapped
+        when "value" is the only key, so a real "value" arg is left alone.
+        """
+        if not command_args:
+            return {}
+        try:
+            args = json.loads(command_args) if isinstance(command_args, (str, bytes)) else command_args
+            if isinstance(args, dict) and list(args) == ["value"]:
+                inner = args["value"]
+                if isinstance(inner, str) and inner.strip().startswith("{"):
+                    inner = json.loads(inner)
+                if isinstance(inner, dict):
+                    return inner
+        except ValueError as e:
+            raise BadRequestException(f"Command args are not valid JSON: {e}")
+        if not isinstance(args, dict):
+            raise BadRequestException("Command args must be a JSON object")
+        return args
+
+    @staticmethod
+    def _require(args: dict, key: str):
+        """Return args[key], or raise BadRequestException (HTTP 400) when it is missing or blank."""
+        if args.get(key) in (None, ""):
+            raise BadRequestException(f"Missing required arg '{key}'")
+        return args[key]
+
+    @staticmethod
+    def _as_bool(value, default: bool = False) -> bool:
+        """metaData / arg booleans: accepts True/False, "true"/"false" (any case), "1"/"0", "yes"/"no"."""
+        if isinstance(value, bool):
+            return value
+        if value is None or str(value).strip() == "":
+            return default
+        return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+    def _raise_device_error(self, action: str, error: Exception):
+        """
+        Re-raise a failed device call as the runtime exception the API turns into an HTTP error:
+        runtime/HTTP exceptions pass through unchanged; network errors -> 503 (and the transformer
+        is marked disconnected so the next call reconnects); anything else -> 500.
+        """
+        if isinstance(error, (FlexxCoreException, HTTPException)):
+            raise error
+        if isinstance(error, (OSError, TimeoutError, ConnectionError)):
+            self._connected = False
+            raise ServiceUnavailableException(f"{action}: device did not respond ({error})") from error
+        raise ServerErrorException(f"{action} failed: {error}") from error

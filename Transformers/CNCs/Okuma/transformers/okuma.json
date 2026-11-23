@@ -2,6 +2,11 @@
   "_class": "Okuma",
   "transformer": "Okuma",
   "commands": {
+    "connect": {},
+    "disconnect": {},
+    "get_all_tool_life": {
+      "num_tools": ""
+    },
     "read_machine_offset": {
       "offset_axis": "0"
     },
@@ -13,6 +18,7 @@
       "offset_axis": "0",
       "offset_value": "0"
     },
+    "get_current_tool": {},
     "read_tool_offset": {
       "tool_num": "0",
       "tool_comp": "0"
@@ -27,10 +33,49 @@
       "tool_comp": "0",
       "offset_value": "0"
     },
+    "set_cutter_comp_offset": {
+      "tool_num": "0",
+      "tool_comp": "0",
+      "offset_value": "0"
+    },
+    "add_cutter_comp_offset": {
+      "tool_num": "0",
+      "tool_comp": "0",
+      "offset_value": "0"
+    },
+    "set_cutter_comp_wear_offset": {
+      "tool_num": "0",
+      "tool_comp": "0",
+      "offset_value": "0"
+    },
+    "add_cutter_comp_wear_offset": {
+      "tool_num": "0",
+      "tool_comp": "0",
+      "offset_value": "0"
+    },
+    "set_cutter_offset": {
+      "tool_num": "0",
+      "tool_comp": "0",
+      "offset_value": "0"
+    },
+    "add_cutter_offset": {
+      "tool_num": "0",
+      "tool_comp": "0",
+      "offset_value": "0"
+    },
+    "set_cutter_wear_offset": {
+      "tool_num": "0",
+      "tool_comp": "0",
+      "offset_value": "0"
+    },
+    "add_cutter_wear_offset": {
+      "tool_num": "0",
+      "tool_comp": "0",
+      "offset_value": "0"
+    },
     "read_workpiece_offset": {
       "offset_axis": "0",
-      "axis_index": "0",
-      "offset_value": "0"
+      "axis_index": "0"
     },
     "add_workpiece_offset": {
       "offset_axis": "0",
@@ -41,7 +86,21 @@
       "offset_axis": "0",
       "axis_index": "0",
       "offset_value": "0"
-    }
+    },
+    "set_program": {
+      "name": ""
+    },
+    "get_remaining_tool_life": {
+      "tool": ""
+    },
+    "get_tool_life": {
+      "tool": ""
+    },
+    "get_active_tool": {},
+    "get_axis_load": {
+      "axis_index": "0"
+    },
+    "get_spindle_load": {}
   },
   "metaData": {
     "ip_address": "",

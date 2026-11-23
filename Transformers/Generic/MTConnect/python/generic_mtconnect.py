@@ -20,8 +20,16 @@ import base64
 import xml.etree.ElementTree as ET
 from typing import List, Optional
 
+from werkzeug.exceptions import HTTPException
+
 from data_models.device import Device
 from transformers.abstract_device import AbstractDevice
+from exceptions.flexxCoreExceptions import (
+    FlexxCoreException,
+    BadRequestException,
+    ServerErrorException,
+    ServiceUnavailableException,
+)
 from protocols.mtconnect import MTConnect
 
 
@@ -74,6 +82,16 @@ class GenericMTConnect(AbstractDevice):
     * Timestamps in MTConnect responses are ISO 8601 UTC strings.
     * UNAVAILABLE is the sentinel value when a data item has no current reading
       (e.g. machine is powered off, or the adapter hasn't reported it yet).
+
+    Errors
+    ------
+    Failures raise the runtime's exceptions, which the API returns as HTTP
+    errors carrying the message: BadRequestException (400) for missing or
+    non-JSON args, an unknown command, or a write (MTConnect is read-only);
+    ServiceUnavailableException (503) when the agent does not respond or
+    answers with an HTTP error; ServerErrorException (500) for anything else
+    (e.g. unparseable XML, or a non-numeric count).  _read_status never raises
+    (it returns "ERROR"), and neither does _read_interval_data.
     """
 
     # Standard MTConnect Execution values
@@ -123,15 +141,6 @@ class GenericMTConnect(AbstractDevice):
     # DEVICE COMMUNICATION METHODS
     # ############################################################################## #
 
-    def _execute_command(self, command: str) -> str:
-        """Legacy v1 entry point — delegates to _execute_command_v2."""
-        command_string = command["commandJson"]
-        command_json   = json.loads(command_string)
-        command_name   = command_json.get("command", "")
-        command_args   = json.dumps({k: v for k, v in command_json.items() if k != "command"})
-        self._info(message=f"Sending command: {command_string}")
-        return self._execute_command_v2(command_name, command_args)
-
     def _execute_command_v2(self, command_name: str, command_args: str) -> str:
         """
         Execute a named MTConnect command.
@@ -148,41 +157,42 @@ class GenericMTConnect(AbstractDevice):
 
         probe
             Fetch the full MTConnect Device Information Model (/probe).
-            Returns the raw XML as a string in {"xml": "..."}.
+            Returns {"status": "ok", "xml": "..."}: the XML as re-serialized by
+            ElementTree (not byte-for-byte; namespaces get ns0-style prefixes).
 
         current
             Fetch the full current snapshot of all data items (/current).
-            Returns the raw XML as a string in {"xml": "..."}.
+            Returns {"status": "ok", "xml": "..."}, re-serialized as for probe.
 
         sample
             Fetch a time-series sample (/sample).
             Args: from_sequence (int, optional), count (int, optional, default 100)
-            Returns the raw XML as a string in {"xml": "..."}.
+            Returns {"status": "ok", "xml": "..."}, re-serialized as for probe.
 
         read_tag
-            Read specific data item(s) by dataItemId from /current.
+            Read specific data item(s) by dataItemId from /current (matched
+            case-insensitively; an element without a dataItemId is matched on
+            its id or name).
             Args: tag (str, required)
                   component_stream (str, optional) — scope to a ComponentStream
                                    name/component/componentId, e.g. "Controller"
-            Returns: {"tag": "...", "results": [{"text": "...", "attrib": {...}}]}
+            Returns: {"status": "ok", "tag": "...", "results": [{"matched_by":
+                      "dataItemId", "tag": "<element name>", "text": "...",
+                      "attrib": {...}, "alarms": [...]}]}
 
         read_tags
-            Read multiple tags in a single /current fetch.
-            Args: tags (comma-separated string or JSON array of dataItemIds)
+            Read multiple tags, fetching /current once per tag.
+            Args: tags (comma-separated string or JSON array of dataItemIds,
+                        required)
                   component_stream (str, optional)
-            Returns: {"values": {"<tag>": "<value>", ...}}
-        """
-        args = json.loads(command_args) if command_args else {}
-        if isinstance(args, dict) and "value" in args and isinstance(args.get("value"), (str, dict)):
-            inner = args["value"]
-            if isinstance(inner, str):
-                try:
-                    inner = json.loads(inner)
-                except Exception:
-                    pass
-            if isinstance(inner, dict):
-                args = inner
+            Returns: {"status": "ok", "values": {"<tag>": "<value>", ...}}
+                     (the first match's text, or "UNAVAILABLE" when none)
 
+        Errors raise: 400 for missing or non-JSON args or an unknown command,
+        503 when the agent does not respond or answers with an HTTP error,
+        500 otherwise (e.g. unparseable XML, or a non-numeric count).
+        """
+        args = self._parse_args(command_args)
         self._info(message=f"Sending command: {command_name}")
 
         try:
@@ -215,9 +225,9 @@ class GenericMTConnect(AbstractDevice):
             if command_name == "sample":
                 self._ensure_connected()
                 from_seq = args.get("from_sequence")
-                count    = int(args.get("count", 100))
+                count    = int(args.get("count") or 100)
                 path     = self._path_sample + f"?count={count}"
-                if from_seq is not None:
+                if from_seq not in (None, ""):
                     path += f"&from={from_seq}"
                 client  = MTConnect(self.ip_address, self.port, path)
                 tree    = client._get_data()
@@ -225,11 +235,9 @@ class GenericMTConnect(AbstractDevice):
                 return json.dumps({"status": "ok", "xml": xml_str})
 
             if command_name == "read_tag":
-                self._ensure_connected()
-                tag              = str(args.get("tag", "")).strip()
+                tag              = str(self._require(args, "tag")).strip()
                 component_stream = args.get("component_stream")
-                if not tag:
-                    return self._err("Missing required field: tag")
+                self._ensure_connected()
                 results = self._read_tag(tag, component_stream=component_stream)
                 return json.dumps({
                     "status": "ok",
@@ -238,40 +246,46 @@ class GenericMTConnect(AbstractDevice):
                 }, default=str)
 
             if command_name == "read_tags":
-                self._ensure_connected()
                 raw_tags         = args.get("tags", "")
                 component_stream = args.get("component_stream")
                 tags             = self._parse_tags(raw_tags)
                 if not tags:
-                    return self._err("Missing required field: tags")
+                    raise BadRequestException("Missing required arg 'tags'")
+                self._ensure_connected()
                 values = {}
                 for tag in tags:
                     results = self._read_tag(tag, component_stream=component_stream)
                     values[tag] = results[0]["text"] if results else "UNAVAILABLE"
                 return json.dumps({"status": "ok", "values": values}, default=str)
 
-            return self._err(f"Unknown command: '{command_name}'")
-
         except Exception as e:
-            self._error(message=f"Command '{command_name}' failed: {e}")
-            return self._err(str(e))
+            self._raise_device_error(f"Command '{command_name}'", e)
+
+        raise BadRequestException(f"Unknown command '{command_name}'")
 
     def _read_interval_data(self) -> str:
         """
         Periodic poll. Reads each tag in metaData.interval_tags from /current
-        and returns their latest values.
+        and returns their latest values ("UNAVAILABLE" for a tag with no
+        match).  Never raises: a tag that fails (or every tag, when the agent
+        is unreachable) reports "ERROR: ...".  Falls back to _read_status when
+        no interval_tags are configured.
         """
         if not self.interval_tags:
             return json.dumps({"status": self._read_status()})
 
-        self._ensure_connected()
         values = {}
-        for tag in self.interval_tags:
-            try:
-                results = self._read_tag(tag)
-                values[tag] = results[0]["text"] if results else "UNAVAILABLE"
-            except Exception as e:
-                values[tag] = f"ERROR: {e}"
+        try:
+            self._ensure_connected()
+            for tag in self.interval_tags:
+                try:
+                    results = self._read_tag(tag)
+                    values[tag] = results[0]["text"] if results else "UNAVAILABLE"
+                except Exception as e:
+                    values[tag] = f"ERROR: {e}"
+        except Exception as e:
+            self._error(message=f"Interval read failed: {e}")
+            values = {tag: f"ERROR: {e}" for tag in self.interval_tags}
         return json.dumps({"status": "ok", "values": values}, default=str)
 
     def _read_status(self, function: str = None) -> str:
@@ -280,9 +294,11 @@ class GenericMTConnect(AbstractDevice):
 
         MTConnect Execution values → Flexx status:
           ACTIVE, FEED_HOLD, WAIT, INTERRUPTED → "RUNNING"
-          READY, STOPPED, PROGRAM_COMPLETED    → "IDLE"
-          UNAVAILABLE                          → "UNAVAILABLE"
-          anything else                        → returned as-is
+          READY, STOPPED, OPTIONAL_STOP,
+          PROGRAM_STOPPED, PROGRAM_COMPLETED   → "IDLE"
+          UNAVAILABLE, or no matching item     → "UNAVAILABLE"
+          anything else                        → returned upper-cased
+          any failure                          → "ERROR" (never raises)
         """
         try:
             self._ensure_connected()
@@ -309,23 +325,27 @@ class GenericMTConnect(AbstractDevice):
         return self.status
 
     def _read_variable(self, variable_name: str, function: str = None) -> str:
-        """Read a single MTConnect dataItemId by name from /current."""
+        """
+        Read a single MTConnect dataItemId (e.g. "execution") from /current and
+        return its text as a plain string ("UNAVAILABLE" when the agent has no
+        such item).  Raises on failure (503 when the agent does not respond
+        or answers with an HTTP error, 500 otherwise).
+        """
         try:
             self._ensure_connected()
             results = self._read_tag(variable_name)
             return results[0]["text"] if results else "UNAVAILABLE"
         except Exception as e:
-            self._error(message=f"Read variable '{variable_name}' failed: {e}")
-            return ""
+            self._raise_device_error(f"Read variable '{variable_name}'", e)
 
     def _write_variable(self, variable_name: str, variable_value: str,
                         function: str = None) -> str:
-        """MTConnect is read-only — writes are not supported by the protocol."""
-        self._info(message=(
-            f"Write to '{variable_name}' ignored: MTConnect is a read-only protocol. "
-            "Use a separate write interface (e.g. OPC-UA, Modbus) for machine writes."
-        ))
-        return ""
+        """
+        MTConnect is read-only — writes are not supported by the protocol.
+        Always raises BadRequestException (400); use a separate write interface
+        (e.g. OPC-UA, Modbus) for machine writes.
+        """
+        raise BadRequestException("MTConnect is read-only")
 
     def _read_parameter(self, parameter_name: str, function: str = None) -> str:
         return self._read_variable(parameter_name, function)
@@ -371,7 +391,7 @@ class GenericMTConnect(AbstractDevice):
             self._info(message=f"MTConnect Agent reachable: {self._agent_url()}")
         except Exception as e:
             self._reachable = False
-            raise ConnectionError(
+            raise ServiceUnavailableException(
                 f"GenericMTConnect: cannot reach agent at {self._agent_url()}: {e}"
             ) from e
 
@@ -414,9 +434,71 @@ class GenericMTConnect(AbstractDevice):
             return [t.strip() for t in stripped.split(",") if t.strip()]
         return []
 
-    def _err(self, message: str) -> str:
+    # ############################################################################## #
+    # STANDARD HELPERS (identical in every transformer)
+    # ############################################################################## #
+
+    def _execute_command(self, command) -> str:
+        """
+        Legacy command path, used by Edge HMI control buttons
+        (POST /devices/<id>/execute_command). Hands off to _execute_command_v2.
+        commandJson may be {"command": "x", "args": {...}} or {"command": "x", <args>}.
+        """
+        raw = command.get("commandJson") or "{}"
+        command_json = json.loads(raw) if isinstance(raw, str) else raw
+        args = command_json.get("args")
+        if not isinstance(args, dict):
+            args = {k: v for k, v in command_json.items() if k != "command"}
+        return self._execute_command_v2(command_json.get("command", ""), json.dumps(args))
+
+    @staticmethod
+    def _parse_args(command_args) -> dict:
+        """
+        Parse command_args (the raw request body). Accepts empty, a JSON object, or the
+        documented wrapper {"value": "<JSON object string>"}. The wrapper is only unwrapped
+        when "value" is the only key, so a real "value" arg is left alone.
+        """
+        if not command_args:
+            return {}
         try:
-            self._error(message=message)
-        except Exception:
-            pass
-        return json.dumps({"status": "error", "message": str(message)}, default=str)
+            args = json.loads(command_args) if isinstance(command_args, (str, bytes)) else command_args
+            if isinstance(args, dict) and list(args) == ["value"]:
+                inner = args["value"]
+                if isinstance(inner, str) and inner.strip().startswith("{"):
+                    inner = json.loads(inner)
+                if isinstance(inner, dict):
+                    return inner
+        except ValueError as e:
+            raise BadRequestException(f"Command args are not valid JSON: {e}")
+        if not isinstance(args, dict):
+            raise BadRequestException("Command args must be a JSON object")
+        return args
+
+    @staticmethod
+    def _require(args: dict, key: str):
+        """Return args[key], or raise BadRequestException (HTTP 400) when it is missing or blank."""
+        if args.get(key) in (None, ""):
+            raise BadRequestException(f"Missing required arg '{key}'")
+        return args[key]
+
+    @staticmethod
+    def _as_bool(value, default: bool = False) -> bool:
+        """metaData / arg booleans: accepts True/False, "true"/"false" (any case), "1"/"0", "yes"/"no"."""
+        if isinstance(value, bool):
+            return value
+        if value is None or str(value).strip() == "":
+            return default
+        return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+    def _raise_device_error(self, action: str, error: Exception):
+        """
+        Re-raise a failed device call as the runtime exception the API turns into an HTTP error:
+        runtime/HTTP exceptions pass through unchanged; network errors -> 503 (and the transformer
+        is marked disconnected so the next call reconnects); anything else -> 500.
+        """
+        if isinstance(error, (FlexxCoreException, HTTPException)):
+            raise error
+        if isinstance(error, (OSError, TimeoutError, ConnectionError)):
+            self._connected = False
+            raise ServiceUnavailableException(f"{action}: device did not respond ({error})") from error
+        raise ServerErrorException(f"{action} failed: {error}") from error

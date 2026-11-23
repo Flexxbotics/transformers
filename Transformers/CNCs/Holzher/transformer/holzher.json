@@ -2,9 +2,41 @@
   "_class": "Holzher",
   "transformer": "holzher",
   "commands": {
+    "connect": {},
+    "disconnect": {},
+    "get_status": {
+      "timeout": "",
+      "headers": ""
+    },
+    "status": {
+      "timeout": "",
+      "headers": ""
+    },
+    "read_http": {
+      "path": "",
+      "timeout": "",
+      "headers": ""
+    },
+    "post_http": {
+      "path": "",
+      "json": "",
+      "data": "",
+      "timeout": "",
+      "headers": ""
+    }
   },
   "metaData": {
     "ip_address": "",
-    "port": ""
+    "port": "",
+    "address": "",
+    "scheme": "http",
+    "timeout": "2.0",
+    "retry": "2",
+    "retry_interval": "0.1",
+    "auto_connect": "true",
+    "health_path": "",
+    "username": "",
+    "password": "",
+    "token": ""
   }
 }

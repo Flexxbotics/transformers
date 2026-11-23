@@ -25,10 +25,6 @@ from transformers.abstract_device import AbstractDevice
 class WorkCell(AbstractDevice):
     """
     The transformer for the workcell
-
-    :author:    tylerjm@flexxbotics.com
-
-    :since:     Q.5 (7.1.17.5)
     """
 
     # ############################################################################## #
@@ -38,7 +34,7 @@ class WorkCell(AbstractDevice):
     def __init__(self, device: Device):
         """
         Workcell class.
-        :param Device:
+        :param device:
                     the device object
 
         :return:    a new instance
@@ -74,28 +70,25 @@ class WorkCell(AbstractDevice):
 
     def _read_interval_data(self) -> str:
         """
-        Method to read the status of the device on an interval
+        Interval poll; does nothing (the body is a placeholder).
 
-        :return:    status - string
-
-        :author:    tylerjm@flexxbotics.com
-
-        :since:     Q.5 (7.1.17.5)
+        :return:    None
         """
         pass
 
     def _read_status(self, function: str = None) -> str:
         """
-        Method to determine and read the status of the workcell
+        Example status logic for the workcell. Reads the robot, CNC and CMM
+        statuses through device_service.read_status (the results are not
+        used), then returns "IDLE". Because "IDLE" is a non-alarm status, it
+        also resolves all alarms on every call. The device ids set in
+        __init__ are blank placeholders, so until they are filled in the
+        first read_status call raises.
 
         :param function:
-                    Optional parameter to provide the name of a function to run - string
+                    Not used - string
 
-        :return:    status - string
-
-        :author:    tylerjm@flexxbotics.com
-
-        :since:     Q.5 (7.1.17.5)
+        :return:    "IDLE" - string
         """
         # Example
         robot_status = self.device_service.read_status(device_id=self.robot_id)

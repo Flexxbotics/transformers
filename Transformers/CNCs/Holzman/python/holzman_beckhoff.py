@@ -16,6 +16,8 @@
 
 from __future__ import annotations
 
+from werkzeug.exceptions import HTTPException
+
 from data_models.device import Device
 from data_models.part_count_event import PartCountEvent
 from data_models.run_record import RunRecord
@@ -23,6 +25,12 @@ import json
 import base64
 from datetime import datetime, timezone
 from transformers.abstract_device import AbstractDevice
+from exceptions.flexxCoreExceptions import (
+    FlexxCoreException,
+    BadRequestException,
+    ServerErrorException,
+    ServiceUnavailableException,
+)
 from protocols.beckhoff_ads_twincat import ADS
 # from protocols.s3 import S3Protocol
 import pyads
@@ -36,15 +44,23 @@ class HolzmanBeckhoff(AbstractDevice):
 
     def __init__(self, device: Device):
         """
-        Beckhoff ADS/TwinCAT device class.
+        Holzman saw device class: talks to the saw's Beckhoff TwinCAT PLC over ADS
+        (a copy of the BeckhoffTwinCAT driver, not a subclass, plus Holzman status,
+        program and part-count logic).
 
         Expects device.metaData to contain (at minimum):
           - ams_net_id: "x.x.x.x.x.x" (TwinCAT AMS Net ID of the target)
           - ip_address: "a.b.c.d" (optional for pyads, but typically provided)
-          - port / ams_port: int (TwinCAT 2 often 801; TwinCAT 3 often 851)
+          - ams_port: int (default 801; TwinCAT 2 often 801, TwinCAT 3 often 851)
+          - local_ams_net_id: "x.x.x.x.x.x" (AMS Net ID of this host; _connect
+            passes it to pyads.set_local_address unconditionally, so connecting
+            fails without it)
           - timeout: float seconds (optional)
           - retry: int (optional)
           - retry_interval: float seconds (optional)
+
+        Raises RuntimeError (wrapping the cause) when ams_net_id is missing or a
+        value cannot be parsed.
         """
         try:
             super().__init__(device)
@@ -66,7 +82,7 @@ class HolzmanBeckhoff(AbstractDevice):
             self.timeout = float(self.meta_data.get("timeout", 2.0))
             self.retry = int(self.meta_data.get("retry", 2))
             self.retry_interval = float(self.meta_data.get("retry_interval", 0.1))
-            self.auto_connect = bool(self.meta_data.get("auto_connect", True))
+            self.auto_connect = self._as_bool(self.meta_data.get("auto_connect", True), True)
 
             # Beckhoff client (protocol wrapper)
             self.client: ADS | None = None
@@ -76,7 +92,7 @@ class HolzmanBeckhoff(AbstractDevice):
             self._last_programmlaeuft = False
 
         except Exception as e:
-            self._logger.error(str(e))
+            self._error(message=str(e))
             raise RuntimeError(f"HolzmanBeckhoff init failed: {e}") from e
 
     def __del__(self):
@@ -94,20 +110,36 @@ class HolzmanBeckhoff(AbstractDevice):
         """
         Executes the command sent to the device.
 
-        Commands:
-          - connect
-          - disconnect
+        Commands (each returns a JSON string):
+          - connect       -> {"status": "ok", "connected": true}
+          - disconnect    -> {"status": "ok", "connected": false}
           - read   (reads an ADS symbol)
+                          -> {"status": "ok", "symbol": ..., "plc_type": ..., "value": ...}
+          - list_symbols  (enumerates the PLC symbols on the target, over a
+                          separate raw pyads connection)
+                          -> {"status": "ok", "count": n, "symbols": [...]}
 
-        read command args (JSON inside args["value"]):
+        Args are a JSON object, or the same object wrapped as {"value": "<json>"}.
+
+        read command args:
           {
-            "symbol": "AchsStatus.Status",
-            "plc_type": null
+            "symbol": "AchsStatus.Status",   # required
+            "plc_type": "INT"                # optional, default "INT"
           }
+
+        list_symbols command args:
+          {
+            "prefix": ".",   # optional
+            "limit": 200      # optional, default 200
+          }
+
+        Errors raise: 400 for invalid JSON args, a missing symbol, an
+        unsupported plc_type or an unknown command; 503 when the ADS client
+        fails to open; 500 otherwise, including ADS errors from a PLC that
+        does not answer (pyads raises ADSError, which is not a network error).
         """
-        # Parse the command from the incoming request
-        args = json.loads(command_args) if command_args else {}
-        args = json.loads(args["value"]) if isinstance(args, dict) and "value" in args else (args or {})
+        args = self._parse_args(command_args)
+        self._info(message=f"Sending command: {command_name}")
 
         try:
             if command_name == "connect":
@@ -119,55 +151,59 @@ class HolzmanBeckhoff(AbstractDevice):
                 return json.dumps({"status": "ok", "connected": False})
 
             if command_name == "read":
-                self._ensure_connected()
-                assert self.client is not None
-                symbol = args.get("symbol")
+                symbol = self._require(args, "symbol")
                 plc_type = args.get("plc_type", "INT")
-                if not symbol:
-                    return self._err("Missing required field: symbol")
                 plc_type_val = self._plc_type_from_args(plc_type)
                 if plc_type_val is None:
-                    return self._err(f"Unsupported plc_type: {plc_type}")
-                try:
-                    value = self.client.read(symbol, plc_type=plc_type_val)
-                    return json.dumps({
-                        "status": "ok",
-                        "symbol": symbol,
-                        "plc_type": plc_type,
-                        "value": value
-                    }, default=str)
-                except Exception as e:
-                    return self._err(str(e))
-            
+                    raise BadRequestException(f"Unsupported plc_type: {plc_type}")
+                self._ensure_connected()
+                assert self.client is not None
+                value = self.client.read(symbol, plc_type=plc_type_val)
+                return json.dumps({
+                    "status": "ok",
+                    "symbol": symbol,
+                    "plc_type": plc_type,
+                    "value": value
+                }, default=str)
+
             if command_name == "list_symbols":
                 prefix = args.get("prefix")
-                limit = int(args.get("limit", 200))
+                limit = int(args.get("limit") or 200)
                 names = self._list_symbols(prefix=prefix, limit=limit)
                 return json.dumps({"status":"ok","count":len(names),"symbols":names}, default=str)
 
-
-            # ---- Unknown command ----
-            return "UNKNOWN_COMMAND"
-
         except Exception as e:
-            self._logger.error(str(e))
-            return str(e)
+            self._raise_device_error(f"Command '{command_name}'", e)
+
+        raise BadRequestException(f"Unknown command '{command_name}'")
 
     def _read_interval_data(self) -> str:
         """
-        Method to read the status of the device on an interval
+        Called on every poll: opens the ADS connection if needed, logs the key
+        PLC symbols (_log_key_plc_values) and updates the active program and
+        part count (_check_program_and_part_count).  Returns None.  Errors are
+        logged; never raises.
         """
-        self._ensure_connected()
-        self._log_key_plc_values()
-        self._check_program_and_part_count()
+        try:
+            self._ensure_connected()
+            self._log_key_plc_values()
+            self._check_program_and_part_count()
+        except Exception as e:
+            self._error(message=f"Interval read failed: {e}")
 
     def _check_program_and_part_count(self) -> None:
         """
         Detects the active program number and part count events.
 
         Active program  : .PNRNM (DINT) — the numeric program ID loaded on the saw.
+                          0 or a failed read is recorded as "NOT_REPORTED".  It is
+                          written as partNumber to get_run_records()[0] on every
+                          call; partCount is reset to 0 when it changes.
         Part count      : falling edge of .PROGRAMMLAEUFT (True → False) signals
-                          that a program cycle completed and a part was produced.
+                          that a program cycle completed and a part was produced;
+                          a PartCountEvent is created for this device.
+
+        Does nothing when there is no ADS client.  Errors are logged, never raised.
         """
         if self.client is None:
             return
@@ -215,22 +251,46 @@ class HolzmanBeckhoff(AbstractDevice):
                 self._last_programmlaeuft = programmlaeuft
 
         except Exception as e:
-            self._logger.error(f"_check_program_and_part_count failed: {e}")
+            self._error(message=f"_check_program_and_part_count failed: {e}")
 
     def _read_status(self, function: str = None) -> str:
+        """
+        Read the saw's status from its PLC flags: "FAULT_<label>", "RUNNING" or
+        "IDLE".  Returns "MACHINE_NOT_CONNECTED_OR_POWERED_OFF" when the ADS
+        connection cannot be opened, and "ERROR" when the PLC does not answer
+        (every symbol read in the call failed) or the read fails unexpectedly.
+        A single symbol that cannot be read is skipped.  When `function` is
+        given, returns "" (nothing to report) once connected, without reading
+        any symbol.  Never raises.
+        """
         try:
             self._ensure_connected()
-        except (ConnectionError, Exception):
+        except (ConnectionError, Exception) as e:
+            self._error(message=f"Status read failed: {e}")
             return "MACHINE_NOT_CONNECTED_OR_POWERED_OFF"
-        assert self.client is not None
 
         if function is not None:
             return ""
+
+        try:
+            return self._read_plc_status()
+        except Exception as e:
+            self._error(message=f"Status read failed: {e}")
+            self._connected = False
+            return "ERROR"
+
+    def _read_plc_status(self) -> str:
+        """
+        Status from the PLC symbols (see _read_status).  Raises ConnectionError
+        when every symbol read failed, i.e. the PLC is not answering.
+        """
+        assert self.client is not None
 
         bool_type = self._plc_type_from_args("BOOL")
         int_type  = self._plc_type_from_args("INT")
 
         faults = []
+        reads_ok = 0  # symbol reads that succeeded; still 0 at the end = PLC not answering
 
         # ------------------------------------------------------------------ #
         # 1. Boolean fault flags — True = fault active                        #
@@ -246,6 +306,7 @@ class HolzmanBeckhoff(AbstractDevice):
                 except Exception:
                     pass
                 faults.append(msg)
+            reads_ok += 1
         except Exception:
             pass
 
@@ -281,6 +342,7 @@ class HolzmanBeckhoff(AbstractDevice):
             try:
                 if self.client.read(symbol=symbol, plc_type=bool_type):
                     faults.append(label)
+                reads_ok += 1
             except Exception:
                 pass
 
@@ -297,6 +359,7 @@ class HolzmanBeckhoff(AbstractDevice):
             try:
                 if not self.client.read(symbol=symbol, plc_type=bool_type):
                     faults.append(label)
+                reads_ok += 1
             except Exception:
                 pass
 
@@ -317,6 +380,7 @@ class HolzmanBeckhoff(AbstractDevice):
         try:
             if self.client.read(symbol=".PROGRAMMLAEUFT", plc_type=bool_type):
                 return "RUNNING"
+            reads_ok += 1
         except Exception:
             pass
 
@@ -324,60 +388,39 @@ class HolzmanBeckhoff(AbstractDevice):
         try:
             if str(self.client.read(symbol=".ACHSSTATUS", plc_type=int_type)) != "0":
                 return "RUNNING"
+            reads_ok += 1
         except Exception:
             pass
+
+        if reads_ok == 0:
+            # Every symbol read failed: the PLC is not answering, so it is not IDLE.
+            raise ConnectionError("no PLC symbol could be read")
 
         return "IDLE"
 
     def _read_variable(self, variable_name: str, function: str = None) -> str:
-        value = ""
-        if function is None:
-            response = self._execute_command_v2(command_name="read", command_args='{"value": {"symbol": "'+variable_name+'"}')
-            return response.get("value", "ERROR")
-
-        elif function == "":
-            pass
-        else:
-            pass
-        return value
-
-    def _write_variable(self, variable_name: str, variable_value: str, function: str = None) -> str:
-        value = ""
-        if function is None:
-            pass
-        elif function == "":
-            pass
-        else:
-            pass
-        return value
-
-    def _write_parameter(self, parameter_name: str, parameter_value: str, function: str = None) -> str:
-        value = ""
-        if function is None:
-            pass
-        elif function == "":
-            pass
-        else:
-            pass
-        return value
+        """
+        Read a PLC symbol by name and return its value as a plain string.
+        variable_name is the TwinCAT symbol path, e.g. ".PNRNM" or
+        "AchsStatus.Status"; its declared type is read from the PLC.
+        A None value is returned as "".  `function` is ignored.  Raises on
+        failure: 503 when the ADS client fails to open, 500 otherwise
+        (including ADS errors from a PLC that does not answer).
+        """
+        try:
+            self._ensure_connected()
+            assert self.client is not None
+            value = self.client.read(variable_name)
+            return str(value) if value is not None else ""
+        except Exception as e:
+            self._raise_device_error(f"Read variable '{variable_name}'", e)
 
     def _read_parameter(self, parameter_name: str, function: str = None) -> str:
-        value = ""
-        if function is None:
-            pass
-        elif function == "":
-            pass
-        else:
-            pass
-        return value
+        return self._read_variable(parameter_name, function)
 
     def _read_file_names(self) -> list:
         self.programs = []
         return self.programs
-
-    def _read_file(self, file_name: str) -> str:
-        file_data = ""
-        return base64.b64encode(file_data)
 
     def _write_file(self, file_name: str, file_data: str):
         pass
@@ -414,7 +457,7 @@ class HolzmanBeckhoff(AbstractDevice):
         self._logger.info("Got connection from Beckhoff!")
         if rc != 0:
             self._connected = False
-            raise ConnectionError(
+            raise ServiceUnavailableException(
                 f"HolzmanBeckhoff: ADS connect failed (ams_net_id={self.ams_net_id}, "
                 f"ams_port={self.ams_port}, ip={self.address})"
             )
@@ -457,7 +500,7 @@ class HolzmanBeckhoff(AbstractDevice):
         self._ensure_connected()
 
         if self.client is None:
-            self._logger.error("ADS client not initialized")
+            self._error(message="ADS client not initialized")
             return
 
         SYMBOLS = [
@@ -547,7 +590,7 @@ class HolzmanBeckhoff(AbstractDevice):
                 self._logger.info(f"{symbol} = {value}")
 
             except Exception as e:
-                self._logger.error(f"{symbol} read failed: {e}")
+                self._error(message=f"{symbol} read failed: {e}")
 
 
     def _open_raw_conn(self):
@@ -578,8 +621,9 @@ class HolzmanBeckhoff(AbstractDevice):
         
         Accepts:
           - None
-              - integer (already a PLCTYPE value)
-      - string like "INT", "BOOL", etc.
+          - integer (returned unchanged, assumed to be a PLCTYPE value)
+          - string like "INT", "BOOL", etc.
+        Returns None for None, an unknown name, or any other type.
         """
         if plc_type is None:
             return None
@@ -615,20 +659,72 @@ class HolzmanBeckhoff(AbstractDevice):
             return mapping.get(key)
         
         return None
-    
-    def _err(self, message: str) -> str:
+
+    # ############################################################################## #
+    # STANDARD HELPERS (identical in every transformer)
+    # ############################################################################## #
+
+    def _execute_command(self, command) -> str:
         """
-        Standardized error response.
+        Legacy command path, used by Edge HMI control buttons
+        (POST /devices/<id>/execute_command). Hands off to _execute_command_v2.
+        commandJson may be {"command": "x", "args": {...}} or {"command": "x", <args>}.
         """
+        raw = command.get("commandJson") or "{}"
+        command_json = json.loads(raw) if isinstance(raw, str) else raw
+        args = command_json.get("args")
+        if not isinstance(args, dict):
+            args = {k: v for k, v in command_json.items() if k != "command"}
+        return self._execute_command_v2(command_json.get("command", ""), json.dumps(args))
+
+    @staticmethod
+    def _parse_args(command_args) -> dict:
+        """
+        Parse command_args (the raw request body). Accepts empty, a JSON object, or the
+        documented wrapper {"value": "<JSON object string>"}. The wrapper is only unwrapped
+        when "value" is the only key, so a real "value" arg is left alone.
+        """
+        if not command_args:
+            return {}
         try:
-            self._error(message)  # log via AbstractDevice logger
-        except Exception:
-            pass
-        
-        return json.dumps(
-            {
-                "status": "error",
-                "message": str(message),
-            },
-            default=str,
-        )
+            args = json.loads(command_args) if isinstance(command_args, (str, bytes)) else command_args
+            if isinstance(args, dict) and list(args) == ["value"]:
+                inner = args["value"]
+                if isinstance(inner, str) and inner.strip().startswith("{"):
+                    inner = json.loads(inner)
+                if isinstance(inner, dict):
+                    return inner
+        except ValueError as e:
+            raise BadRequestException(f"Command args are not valid JSON: {e}")
+        if not isinstance(args, dict):
+            raise BadRequestException("Command args must be a JSON object")
+        return args
+
+    @staticmethod
+    def _require(args: dict, key: str):
+        """Return args[key], or raise BadRequestException (HTTP 400) when it is missing or blank."""
+        if args.get(key) in (None, ""):
+            raise BadRequestException(f"Missing required arg '{key}'")
+        return args[key]
+
+    @staticmethod
+    def _as_bool(value, default: bool = False) -> bool:
+        """metaData / arg booleans: accepts True/False, "true"/"false" (any case), "1"/"0", "yes"/"no"."""
+        if isinstance(value, bool):
+            return value
+        if value is None or str(value).strip() == "":
+            return default
+        return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+    def _raise_device_error(self, action: str, error: Exception):
+        """
+        Re-raise a failed device call as the runtime exception the API turns into an HTTP error:
+        runtime/HTTP exceptions pass through unchanged; network errors -> 503 (and the transformer
+        is marked disconnected so the next call reconnects); anything else -> 500.
+        """
+        if isinstance(error, (FlexxCoreException, HTTPException)):
+            raise error
+        if isinstance(error, (OSError, TimeoutError, ConnectionError)):
+            self._connected = False
+            raise ServiceUnavailableException(f"{action}: device did not respond ({error})") from error
+        raise ServerErrorException(f"{action} failed: {error}") from error

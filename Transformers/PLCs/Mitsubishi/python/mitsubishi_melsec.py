@@ -15,8 +15,15 @@
 """
 import json
 import base64
+from werkzeug.exceptions import HTTPException
 from data_models.device import Device
 from transformers.abstract_device import AbstractDevice
+from exceptions.flexxCoreExceptions import (
+    FlexxCoreException,
+    BadRequestException,
+    ServerErrorException,
+    ServiceUnavailableException,
+)
 from protocols.mitsubishi_melsec_mc import MelsecMC, MelsecWrite
 
 
@@ -31,7 +38,7 @@ class MitsubishiMelsec(AbstractDevice):
       L     : L02SCPU, L06CPU, L26CPU-BT
 
     Connection parameters (all in metaData):
-      ip_address          : PLC IP address
+      ip_address          : PLC IP address (required)
       port                : TCP port (default 5007 for 3E frame)
       frame_type          : "3E" (default) or "1E"
       plc_type            : "Q" | "iQ-R" | "iQ-F" | "L" | "QnA"
@@ -41,6 +48,17 @@ class MitsubishiMelsec(AbstractDevice):
       pc_number           : Melsec PC/station number (default 255)
       status_device       : device to poll for _read_status (default "SM400")
       interval_devices    : comma-separated device list for _read_interval_data
+
+    Errors
+    ------
+    Failures raise the runtime's exceptions, which the API returns as HTTP
+    errors carrying the message: BadRequestException (400) for missing or
+    non-JSON args, an unknown device prefix in a variable/parameter read or
+    write, or an unknown command, ServiceUnavailableException (503) when the
+    PLC does not respond, ServerErrorException (500) for anything else
+    (including args that do not convert and device names the commands pass
+    straight to pymcprotocol).  _read_status never raises (it returns "ERROR"),
+    and neither does _read_interval_data.
     """
 
     def __init__(self, device: Device):
@@ -63,6 +81,10 @@ class MitsubishiMelsec(AbstractDevice):
             if d.strip()
         ]
 
+        if not self.ip_address:
+            raise ValueError("MitsubishiMelsec: metaData must contain 'ip_address'")
+
+        # Creating the client does not touch the network; it connects on first use.
         self._client = MelsecMC(
             ip_address=self.ip_address,
             port=self.port,
@@ -74,30 +96,19 @@ class MitsubishiMelsec(AbstractDevice):
             pc_number=self.pc_number,
             auto_connect=True,
         )
+        self._connected = False
 
         self.status = "transformer Initiated"
 
     def __del__(self):
         try:
-            self._client.disconnect()
+            self._disconnect()
         except Exception:
             pass
 
     # ############################################################################## #
     # DEVICE COMMUNICATION METHODS
     # ############################################################################## #
-
-    def _execute_command(self, command: str) -> str:
-        """
-        Legacy command interface. Parses commandJson and delegates to _execute_command_v2.
-        """
-        command_string = command["commandJson"]
-        command_json = json.loads(command_string)
-        command_name = command_json.get("command", "")
-        command_args = json.dumps({k: v for k, v in command_json.items() if k != "command"})
-
-        self._info(message=f"Sending command: {command_string}")
-        return self._execute_command_v2(command_name, command_args)
 
     def _execute_command_v2(self, command_name: str, command_args: str) -> str:
         """
@@ -107,114 +118,129 @@ class MitsubishiMelsec(AbstractDevice):
         ------------------
         connect
             Explicitly open TCP connection to the PLC.
+            Returns: {"status": "ok", "connected": true}
 
         disconnect
             Close TCP connection.
+            Returns: {"status": "ok", "connected": false}
 
         read_words
             Read consecutive word-unit (D, W, R, …) devices.
-            Args: device (str), count (int, default 1)
-            Returns: {"device": "D100", "count": 1, "values": [...]}
+            Args: device (str, required), count (int, default 1)
+            Returns: {"status": "ok", "device": "D100", "count": 1, "values": [...]}
 
         read_bits
             Read consecutive bit-unit (M, X, Y, …) devices.
-            Args: device (str), count (int, default 1)
-            Returns: {"device": "M0", "count": 1, "values": [...]}
+            Args: device (str, required), count (int, default 1)
+            Returns: {"status": "ok", "device": "M0", "count": 1, "values": [...]}
 
         write_words
             Write consecutive word-unit devices.
-            Args: device (str), values ([int, ...])
+            Args: device (str, required), values ([int, ...], required)
+            Returns: {"status": "ok", "device": "D100", "values": [...]}
 
         write_bits
             Write consecutive bit-unit devices (0 or 1).
-            Args: device (str), values ([int, ...])
+            Args: device (str, required), values ([int, ...], required)
+            Returns: {"status": "ok", "device": "M0", "values": [...]}
 
         random_read
             Non-contiguous read across word and/or bit devices in one round-trip.
-            Args: word_devices ([str]), bit_devices ([str])
-            Returns: {"word": {"D0": 10, ...}, "bit": {"M0": 1, ...}}
+            Args: word_devices ([str], default []), bit_devices ([str], default [])
+            Returns: {"status": "ok", "word": {"D0": 10, ...}, "bit": {"M0": 1, ...}}
 
         random_write
             Non-contiguous write across word and/or bit devices in one round-trip.
-            Args: word_devices ([str]), word_values ([int]),
+            Args (each default []): word_devices ([str]), word_values ([int]),
                   bit_devices ([str]), bit_values ([int])
+            Returns: {"status": "ok"}
+
+        Errors raise: 400 for missing or non-JSON args or an unknown command,
+        503 when the PLC does not respond, 500 otherwise (including args that
+        do not convert to int).
         """
-        args = json.loads(command_args) if command_args else {}
+        args = self._parse_args(command_args)
         self._info(message=f"Sending command: {command_name}")
 
         try:
             if command_name == "connect":
-                rc = self._client.connect()
-                return json.dumps({"status": "ok" if rc == 0 else "error", "rc": rc})
+                self._connect()
+                return json.dumps({"status": "ok", "connected": True})
 
             if command_name == "disconnect":
-                rc = self._client.disconnect()
-                return json.dumps({"status": "ok" if rc == 0 else "error", "rc": rc})
+                self._disconnect()
+                return json.dumps({"status": "ok", "connected": False})
 
             if command_name == "read_words":
-                device = str(args["device"])
-                count  = int(args.get("count", 1))
+                device = str(self._require(args, "device"))
+                count  = int(args.get("count") or 1)
+                self._ensure_connected()
                 values = self._client.read_words(device, count)
                 return json.dumps({"status": "ok", "device": device,
                                    "count": count, "values": values})
 
             if command_name == "read_bits":
-                device = str(args["device"])
-                count  = int(args.get("count", 1))
+                device = str(self._require(args, "device"))
+                count  = int(args.get("count") or 1)
+                self._ensure_connected()
                 values = self._client.read_bits(device, count)
                 return json.dumps({"status": "ok", "device": device,
                                    "count": count, "values": values})
 
             if command_name == "write_words":
-                device = str(args["device"])
-                values = [int(v) for v in args["values"]]
+                device = str(self._require(args, "device"))
+                values = [int(v) for v in self._require(args, "values")]
+                self._ensure_connected()
                 self._client.write_words(device, values)
                 return json.dumps({"status": "ok", "device": device, "values": values})
 
             if command_name == "write_bits":
-                device = str(args["device"])
-                values = [int(v) for v in args["values"]]
+                device = str(self._require(args, "device"))
+                values = [int(v) for v in self._require(args, "values")]
+                self._ensure_connected()
                 self._client.write_bits(device, values)
                 return json.dumps({"status": "ok", "device": device, "values": values})
 
             if command_name == "random_read":
-                word_devices = args.get("word_devices", [])
-                bit_devices  = args.get("bit_devices", [])
+                word_devices = args.get("word_devices") or []
+                bit_devices  = args.get("bit_devices") or []
+                self._ensure_connected()
                 result = self._client.random_read(
                     word_devices=word_devices, bit_devices=bit_devices
                 )
                 return json.dumps({"status": "ok", **result})
 
             if command_name == "random_write":
-                word_devices = args.get("word_devices", [])
-                word_values  = [int(v) for v in args.get("word_values", [])]
-                bit_devices  = args.get("bit_devices", [])
-                bit_values   = [int(v) for v in args.get("bit_values", [])]
+                word_devices = args.get("word_devices") or []
+                word_values  = [int(v) for v in args.get("word_values") or []]
+                bit_devices  = args.get("bit_devices") or []
+                bit_values   = [int(v) for v in args.get("bit_values") or []]
+                self._ensure_connected()
                 self._client.random_write(
                     word_devices=word_devices, word_values=word_values,
                     bit_devices=bit_devices, bit_values=bit_values,
                 )
                 return json.dumps({"status": "ok"})
 
-            raise ValueError(f"Unknown command: {command_name}")
-
         except Exception as e:
-            self._error(message=f"Command '{command_name}' failed: {e}")
-            raise Exception(f"Error executing command '{command_name}': {e}")
+            self._raise_device_error(f"Command '{command_name}'", e)
+
+        raise BadRequestException(f"Unknown command '{command_name}'")
 
     def _read_interval_data(self) -> str:
         """
         Periodic poll. Reads the devices listed in metaData.interval_devices
         (comma-separated, e.g. "D0,D1,M0,Y0") in a single random_read call.
         Falls back to _read_status when no interval devices are configured.
+        Never raises.
         """
         if not self.interval_devices:
-            return self._read_status()
-
-        word_devices = [d for d in self.interval_devices if not self._is_bit_device(d)]
-        bit_devices  = [d for d in self.interval_devices if self._is_bit_device(d)]
+            return json.dumps({"status": self._read_status()})
 
         try:
+            word_devices = [d for d in self.interval_devices if not self._is_bit_device(d)]
+            bit_devices  = [d for d in self.interval_devices if self._is_bit_device(d)]
+            self._ensure_connected()
             result = self._client.random_read(
                 word_devices=word_devices, bit_devices=bit_devices
             )
@@ -228,20 +254,24 @@ class MitsubishiMelsec(AbstractDevice):
         Read PLC run/stop status.
 
         Reads metaData.status_device (default SM400 — the always-ON special
-        relay present on all modern Mitsubishi PLCs).  A value of 1 means the
-        CPU is running normally; 0 indicates a stopped or faulted state.
+        relay present on all modern Mitsubishi PLCs) as a single bit.  A value
+        of 1 means the CPU is running normally; 0 indicates a stopped or
+        faulted state.  Returns "RUNNING" (1), "STOPPED" (0), or "ERROR" when
+        the read fails (the transformer is then marked disconnected).
 
         Common status devices:
           SM400  — always ON (1) when CPU is running  (iQ-R, iQ-F, Q, L)
-          SM0    — first-scan flag (momentary, not useful for polling)
-          SD0    — PLC type code (word, iQ-R/Q/L)
+          SM0    — self-diagnostic error flag (ON = error, so it would read as "RUNNING")
+          SD0    — self-diagnostic error code (a word device; this read is bit-only)
         """
         try:
+            self._ensure_connected()
             values = self._client.read_bits(self.status_device, 1)
             running = bool(values[0]) if values else False
             self.status = "RUNNING" if running else "STOPPED"
         except Exception as e:
             self._error(message=f"Status read failed: {e}")
+            self._connected = False
             self.status = "ERROR"
 
         return self.status
@@ -249,34 +279,44 @@ class MitsubishiMelsec(AbstractDevice):
     def _read_variable(self, variable_name: str, function: str = None) -> str:
         """
         Read a named device from the PLC.  variable_name is a Melsec device
-        address such as "D100" or "M5".
+        address such as "D100", "M5" or "X0F" (bit or word is decided by the
+        device prefix; see _is_bit_device).  Returns the value as a plain
+        string.  Raises on failure (400 for an unknown device prefix, 503 when
+        the PLC does not respond, 500 otherwise).
         """
         try:
-            if self._is_bit_device(variable_name):
+            is_bit = self._is_bit_device(variable_name)
+            self._ensure_connected()
+            if is_bit:
                 values = self._client.read_bits(variable_name, 1)
             else:
                 values = self._client.read_words(variable_name, 1)
-            return str(values[0]) if values else ""
+            if not values:
+                raise ServerErrorException(f"Read '{variable_name}' failed: the PLC returned no value")
+            return str(values[0])
         except Exception as e:
-            self._error(message=f"Read variable '{variable_name}' failed: {e}")
-            return ""
+            self._raise_device_error(f"Read variable '{variable_name}'", e)
 
     def _write_variable(self, variable_name: str, variable_value: str,
                         function: str = None) -> str:
         """
         Write a value to a named device.  variable_name is a Melsec device
-        address; variable_value is cast to int.
+        address; variable_value is cast to int.  A bit device gets a single
+        bit write, a word device a single word write.  Returns the written
+        value.  Raises on failure (400 for an unknown device prefix, 503 when
+        the PLC does not respond, 500 otherwise).
         """
         try:
             val = int(variable_value)
-            if self._is_bit_device(variable_name):
+            is_bit = self._is_bit_device(variable_name)
+            self._ensure_connected()
+            if is_bit:
                 self._client.write_bits(variable_name, [val])
             else:
                 self._client.write_words(variable_name, [val])
             return variable_value
         except Exception as e:
-            self._error(message=f"Write variable '{variable_name}' failed: {e}")
-            return ""
+            self._raise_device_error(f"Write variable '{variable_name}'", e)
 
     def _read_parameter(self, parameter_name: str, function: str = None) -> str:
         """Read a PLC parameter by device address (delegates to _read_variable)."""
@@ -314,7 +354,122 @@ class MitsubishiMelsec(AbstractDevice):
 
     @staticmethod
     def _is_bit_device(device: str) -> bool:
-        """Return True when the device prefix indicates a bit-unit device."""
-        _BIT_PREFIXES = {"X", "Y", "M", "L", "F", "V", "B", "S", "SC", "TC", "CC"}
-        prefix = "".join(c for c in device if c.isalpha()).upper()
-        return prefix in _BIT_PREFIXES
+        """
+        Return True for a bit-unit device, False for a word-unit device.
+
+        Classified by the longest known device prefix at the START of the
+        address, followed by the device number (decimal or hex digits).  The
+        prefix is not "all the letters": X, Y, B, W, SB and SW numbers are
+        hexadecimal, so "X0F", "XF" and "Y1A" are bits and "W1A" is a word.
+        Raises BadRequestException for an unknown prefix.
+        """
+        _BIT_PREFIXES  = {"X", "Y", "M", "L", "F", "V", "B", "S", "SM", "SB",
+                          "TS", "TC", "CS", "CC", "SS", "SC"}
+        _WORD_PREFIXES = {"D", "W", "R", "ZR", "Z", "TN", "CN", "SN", "SD", "SW"}
+        address = str(device).strip().upper()
+        for length in (2, 1):
+            prefix, number = address[:length], address[length:]
+            if not number or any(c not in "0123456789ABCDEF" for c in number):
+                continue
+            if prefix in _BIT_PREFIXES:
+                return True
+            if prefix in _WORD_PREFIXES:
+                return False
+        raise BadRequestException(
+            f"Unknown Melsec device '{device}': expected a bit device "
+            f"({', '.join(sorted(_BIT_PREFIXES))}) or a word device "
+            f"({', '.join(sorted(_WORD_PREFIXES))}) followed by its number"
+        )
+
+    def _connect(self) -> None:
+        if self._connected:
+            return
+        self._info(message=f"Connecting to Melsec PLC: {self.ip_address}:{self.port}")
+        # connect() replaces the session without closing it; close a stale one first.
+        self._client.disconnect()
+        rc = self._client.connect()
+        if rc != 0:
+            self._connected = False
+            raise ServiceUnavailableException(
+                f"MitsubishiMelsec: connect failed ({self.ip_address}:{self.port})"
+            )
+        self._connected = True
+
+    def _disconnect(self) -> None:
+        try:
+            self._client.disconnect()
+        finally:
+            self._connected = False
+
+    def _ensure_connected(self) -> None:
+        if not self._connected:
+            self._connect()
+
+    # ############################################################################## #
+    # STANDARD HELPERS (identical in every transformer)
+    # ############################################################################## #
+
+    def _execute_command(self, command) -> str:
+        """
+        Legacy command path, used by Edge HMI control buttons
+        (POST /devices/<id>/execute_command). Hands off to _execute_command_v2.
+        commandJson may be {"command": "x", "args": {...}} or {"command": "x", <args>}.
+        """
+        raw = command.get("commandJson") or "{}"
+        command_json = json.loads(raw) if isinstance(raw, str) else raw
+        args = command_json.get("args")
+        if not isinstance(args, dict):
+            args = {k: v for k, v in command_json.items() if k != "command"}
+        return self._execute_command_v2(command_json.get("command", ""), json.dumps(args))
+
+    @staticmethod
+    def _parse_args(command_args) -> dict:
+        """
+        Parse command_args (the raw request body). Accepts empty, a JSON object, or the
+        documented wrapper {"value": "<JSON object string>"}. The wrapper is only unwrapped
+        when "value" is the only key, so a real "value" arg is left alone.
+        """
+        if not command_args:
+            return {}
+        try:
+            args = json.loads(command_args) if isinstance(command_args, (str, bytes)) else command_args
+            if isinstance(args, dict) and list(args) == ["value"]:
+                inner = args["value"]
+                if isinstance(inner, str) and inner.strip().startswith("{"):
+                    inner = json.loads(inner)
+                if isinstance(inner, dict):
+                    return inner
+        except ValueError as e:
+            raise BadRequestException(f"Command args are not valid JSON: {e}")
+        if not isinstance(args, dict):
+            raise BadRequestException("Command args must be a JSON object")
+        return args
+
+    @staticmethod
+    def _require(args: dict, key: str):
+        """Return args[key], or raise BadRequestException (HTTP 400) when it is missing or blank."""
+        if args.get(key) in (None, ""):
+            raise BadRequestException(f"Missing required arg '{key}'")
+        return args[key]
+
+    @staticmethod
+    def _as_bool(value, default: bool = False) -> bool:
+        """metaData / arg booleans: accepts True/False, "true"/"false" (any case), "1"/"0", "yes"/"no"."""
+        if isinstance(value, bool):
+            return value
+        if value is None or str(value).strip() == "":
+            return default
+        return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+    def _raise_device_error(self, action: str, error: Exception):
+        """
+        Re-raise a failed device call as the runtime exception the API turns into an HTTP error:
+        runtime/HTTP exceptions pass through unchanged; network errors -> 503 (and the transformer
+        is marked disconnected so the next call reconnects); anything else -> 500.
+        """
+        if isinstance(error, (FlexxCoreException, HTTPException)):
+            raise error
+        if isinstance(error, (OSError, TimeoutError, ConnectionError)):
+            self._connected = False
+            raise ServiceUnavailableException(f"{action}: device did not respond ({error})") from error
+        raise ServerErrorException(f"{action} failed: {error}") from error

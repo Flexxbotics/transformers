@@ -23,8 +23,15 @@ import time
 from typing import Optional, Tuple, Any, Dict
 
 import requests
+from werkzeug.exceptions import HTTPException
 
 from transformers.abstract_device import AbstractDevice
+from exceptions.flexxCoreExceptions import (
+    FlexxCoreException,
+    BadRequestException,
+    ServerErrorException,
+    ServiceUnavailableException,
+)
 
 # --------------------------------------------------------------------------------------
 # Holzher driver class
@@ -44,11 +51,20 @@ class Holzher(AbstractDevice):
     Optional metaData:
       - scheme: "http" | "https" (default "http")
       - timeout: float seconds (default 2.0)
-      - retry: int (default 2)
-      - retry_interval: float seconds (default 0.1)
-      - auto_connect: bool (default True)
+      - retry: int (default 2; read but not used)
+      - retry_interval: float seconds (default 0.1; read but not used)
+      - auto_connect: bool (default True; read but not used)
       - health_path: str (optional preferred probe path, e.g. "/ping")
       - username/password OR token (optional auth)
+
+    Errors
+    ------
+    Failures raise the runtime's exceptions, which the API returns as HTTP
+    errors carrying the message: BadRequestException (400) for bad args or an
+    unknown command, ServiceUnavailableException (503) when the device does not
+    respond, ServerErrorException (500) for an HTTP 4xx/5xx reply or anything
+    else.  _read_status never raises (it returns "ERROR"), and neither does
+    _read_interval_data.
     """
 
     def __init__(self, device: Device):
@@ -62,13 +78,19 @@ class Holzher(AbstractDevice):
 
             # Common metadata keys
             self.address = self.meta_data.get("ip_address") or self.meta_data.get("address")
-            self.port = int(self.meta_data.get("port"))
+            port = str(self.meta_data.get("port") or "").strip()
+            if not port:
+                raise ValueError("Holzher: metaData must contain 'port'")
+            try:
+                self.port = int(port)
+            except ValueError:
+                raise ValueError(f"Holzher: metaData 'port' must be an integer, got {port!r}")
 
             # Connection tuning
             self.timeout = float(self.meta_data.get("timeout", 2.0))
             self.retry = int(self.meta_data.get("retry", 2))
             self.retry_interval = float(self.meta_data.get("retry_interval", 0.1))
-            self.auto_connect = bool(self.meta_data.get("auto_connect", True))
+            self.auto_connect = self._as_bool(self.meta_data.get("auto_connect", True), True)
 
             # HTTP client (requests.Session) once connected
             self.client: Optional[requests.Session] = None
@@ -77,7 +99,7 @@ class Holzher(AbstractDevice):
             self._connected = False
 
         except Exception as e:
-            self._logger.error(str(e))
+            self._error(message=str(e))
             raise RuntimeError(f"Holzher init failed: {e}") from e
 
     def __del__(self):
@@ -98,13 +120,21 @@ class Holzher(AbstractDevice):
         Supported commands:
           - connect
           - disconnect
-          - get_status   (lightweight connectivity check via GET probe)
+          - get_status   (alias "status"; lightweight connectivity check: GET of
+                          metaData.health_path, else "/health")
           - read_http    (HTTP GET)
           - post_http    (HTTP POST)
 
         Notes on command_args:
-          command_args is expected to be a JSON string, optionally wrapped as:
+          command_args is expected to be a JSON object string, optionally wrapped as:
             {"value": "<json-string>"}  OR {"value": {...}}
+          Invalid JSON is rejected with a 400.
+
+        Args for get_status (both optional):
+          {
+            "timeout": 2.0,                    # optional; defaults to self.timeout
+            "headers": {"X-Foo": "bar"}        # optional
+          }
 
         Args for read_http:
           {
@@ -116,39 +146,31 @@ class Holzher(AbstractDevice):
         Args for post_http:
           {
             "path": "/api/do_something",       # required
-            "json": {...},                     # optional JSON body
-            "data": "raw",                     # optional raw body (string/bytes)
+            "json": {...},                     # optional JSON body (object or list only)
+            "data": "raw",                     # optional raw body (string/bytes);
+                                               # requests sends data, not json, if both are set
             "timeout": 2.0,                    # optional; defaults to self.timeout
             "headers": {"Content-Type":"..."}  # optional
           }
 
-        Returns:
-          Always returns a JSON string (success or error).
+        Returns (JSON strings; "snippet"/"body" are the first 200 characters of the reply):
+          connect / disconnect: {"status": "ok", "connected": true|false}
+          get_status:           {"status": "ok", "connected": true, "http_status": <code>,
+                                 "probe_path": "...", "snippet": "..."}
+          read_http / post_http: {"status": "ok", "http_status": <code>, "path": "...",
+                                  "body": "..."}
+
+        Errors raise: 400 for missing/invalid args or an unknown command,
+        503 when the device does not respond, 500 when it answers with an
+        HTTP 4xx/5xx status (the message carries the code and a body excerpt)
+        or anything else fails.
         """
-        # Parse the command from the incoming request
-        try:
-            args: Any = json.loads(command_args) if command_args else {}
-        except Exception:
-            args = {}
-
-        # unwrap {"value": ...}
-        if isinstance(args, dict) and "value" in args:
-            v = args.get("value")
-            if isinstance(v, str):
-                try:
-                    args = json.loads(v)
-                except Exception:
-                    args = {}
-            elif isinstance(v, dict):
-                args = v
-            else:
-                args = {}
-
-        args = args or {}
+        args = self._parse_args(command_args)
+        self._info(message=f"Sending command: {command_name}")
 
         try:
             if command_name == "connect":
-                self._connect(timeout_s=int(args.get("timeout_s", 10)))
+                self._connect()
                 return json.dumps({"status": "ok", "connected": True}, default=str)
 
             if command_name == "disconnect":
@@ -159,15 +181,16 @@ class Holzher(AbstractDevice):
                 self._ensure_connected()
                 # probe a known endpoint (health_path if provided, otherwise our probe list)
                 ep = self.meta_data.get("health_path", None)
-                if ep is None:
+                if not ep:
                     # pick first probe endpoint
                     ep = self._probe_endpoints()[0]
                 code, snippet = self._http_request(
                     "GET",
                     ep,
-                    timeout=float(args.get("timeout", self.timeout)),
+                    timeout=float(args.get("timeout") or self.timeout),
                     headers=args.get("headers") if isinstance(args.get("headers"), dict) else None,
                 )
+                self._check_http_status(code, ep, snippet)
                 return json.dumps(
                     {
                         "status": "ok",
@@ -180,26 +203,23 @@ class Holzher(AbstractDevice):
                 )
 
             if command_name == "read_http":
+                path = self._require(args, "path")
                 self._ensure_connected()
-                path = args.get("path")
-                if not path:
-                    return self._err("read_http requires args.path")
                 code, snippet = self._http_request(
                     "GET",
                     str(path),
-                    timeout=float(args.get("timeout", self.timeout)),
+                    timeout=float(args.get("timeout") or self.timeout),
                     headers=args.get("headers") if isinstance(args.get("headers"), dict) else None,
                 )
+                self._check_http_status(code, path, snippet)
                 return json.dumps(
                     {"status": "ok", "http_status": code, "path": path, "body": snippet},
                     default=str,
                 )
 
             if command_name == "post_http":
+                path = self._require(args, "path")
                 self._ensure_connected()
-                path = args.get("path")
-                if not path:
-                    return self._err("post_http requires args.path")
 
                 # Prefer json body if provided; else use raw data if provided.
                 json_body = args.get("json", None)
@@ -208,104 +228,54 @@ class Holzher(AbstractDevice):
                 code, snippet = self._http_request(
                     "POST",
                     str(path),
-                    timeout=float(args.get("timeout", self.timeout)),
+                    timeout=float(args.get("timeout") or self.timeout),
                     headers=args.get("headers") if isinstance(args.get("headers"), dict) else None,
                     json_body=json_body if isinstance(json_body, (dict, list)) else None,
                     data_body=data_body,
                 )
+                self._check_http_status(code, path, snippet)
                 return json.dumps(
                     {"status": "ok", "http_status": code, "path": path, "body": snippet},
                     default=str,
                 )
 
-            # ---- Unknown command ----
-            return self._err(f"UNKNOWN_COMMAND: {command_name}")
-
         except Exception as e:
-            self._logger.error(str(e))
-            return self._err(str(e))
+            self._raise_device_error(f"Command '{command_name}'", e)
+
+        raise BadRequestException(f"Unknown command '{command_name}'")
 
     def _read_interval_data(self) -> str:
         """
-        Method to read the status of the Holzher device on an interval.
+        Called on every poll: connects if not connected (no polling reads are
+        implemented yet).  Returns '{"status": "ok"}', or "" after logging a
+        failed connect (the runtime discards the value).  Never raises.
         """
-        self._ensure_connected()
-        # TODO: implement polling reads once endpoints/symbols are known
-        return json.dumps({"status": "ok"}, default=str)
+        try:
+            self._ensure_connected()
+            # TODO: implement polling reads once endpoints/symbols are known
+            return json.dumps({"status": "ok"}, default=str)
+        except Exception as e:
+            self._error(message=f"Interval read failed: {e}")
+            return ""
 
     def _read_status(self, function: str = None) -> str:
         """
         Read Holzher status.
 
-        function:
-          - None: default status (TODO)
-          - otherwise: future routing options (TODO)
+        No status endpoint is known yet.  While connected it returns "" (nothing
+        to report) without contacting the controller.  When not connected it
+        runs the connect probe: "" if that succeeds, "ERROR" if it fails.
+        `function` is ignored.  Never raises.
         """
-        status = ""
-        self._ensure_connected()
-        assert self.client is not None
-
-        if function is None:
+        try:
+            self._ensure_connected()
+            assert self.client is not None
             # TODO: how to get status (endpoint + parsing)
-            pass
-        elif function == "":
-            pass
-        else:
-            pass
-        return status
-
-    def _read_variable(self, variable_name: str, function: str = None) -> str:
-        """
-        Read a Holzher variable (placeholder until the real interface is confirmed).
-        """
-        value = ""
-        if function is None:
-            # TODO: how to read variables
-            pass
-        elif function == "":
-            pass
-        else:
-            pass
-        return value
-
-    def _write_variable(self, variable_name: str, variable_value: str, function: str = None) -> str:
-        """
-        Write a Holzher variable (placeholder until the real interface is confirmed).
-        """
-        value = ""
-        if function is None:
-            pass
-        elif function == "":
-            pass
-        else:
-            pass
-        return value
-
-    def _write_parameter(self, parameter_name: str, parameter_value: str, function: str = None) -> str:
-        """
-        Write a Holzher parameter (placeholder).
-        """
-        value = ""
-        if function is None:
-            pass
-        elif function == "":
-            pass
-        else:
-            pass
-        return value
-
-    def _read_parameter(self, parameter_name: str, function: str = None) -> str:
-        """
-        Read a Holzher parameter (placeholder).
-        """
-        value = ""
-        if function is None:
-            pass
-        elif function == "":
-            pass
-        else:
-            pass
-        return value
+            return ""
+        except Exception as e:
+            self._error(message=f"Status read failed: {e}")
+            self._connected = False
+            return "ERROR"
 
     def _read_file_names(self) -> list:
         """
@@ -422,53 +392,66 @@ class Holzher(AbstractDevice):
         snippet = (r.text or "")[:200]
         return r.status_code, snippet
 
-    def _connect(self, *, timeout_s: int = 10) -> None:
+    @staticmethod
+    def _check_http_status(code: int, path: str, snippet: str) -> None:
+        """
+        Raise ServerErrorException (HTTP 500) when the controller answered with
+        an HTTP 4xx/5xx status, carrying the code and a short body excerpt.
+        """
+        if code >= 400:
+            excerpt = (snippet or "").strip()[:120]
+            raise ServerErrorException(f"Holzher replied HTTP {code} for {path!r}: {excerpt!r}")
+
+    def _connect(self) -> None:
         """
         Create Holzher client and open connection.
 
         For HTTP-based devices, "connect" means:
           - create a requests.Session
-          - successfully probe at least one endpoint
+          - probe endpoints until one answers 2xx/3xx, or 401/403 (reachable
+            but unauthorized)
+
+        Returns at once when already connected.  One pass over the probe
+        endpoints, each request bounded by metaData.timeout.  Any request error
+        (e.g. a connection error or timeout) ends the pass at once.  Raises
+        ServiceUnavailableException on failure.
         """
+        if self._connected and self.client is not None:
+            return
+
         self._logger.info("Connecting to Holzher...")
 
         # Create the HTTP client (session)
         self.client = requests.Session()
 
         last_err: Optional[Exception] = None
-        deadline = time.time() + float(timeout_s)
+        try:
+            for ep in self._probe_endpoints():
+                code, snippet = self._http_request("GET", ep, timeout=self.timeout)
 
-        # attempt loop (time-based + short sleeps)
-        while time.time() < deadline:
-            try:
-                for ep in self._probe_endpoints():
-                    code, snippet = self._http_request("GET", ep, timeout=self.timeout)
+                # Any 2xx/3xx confirms service is responding
+                if 200 <= code < 400:
+                    self._connected = True
+                    self._logger.info(
+                        f"Connected to Holzher at {self._base_url()} (probe={ep!r}, status={code})"
+                    )
+                    return
 
-                    # Any 2xx/3xx confirms service is responding
-                    if 200 <= code < 400:
-                        self._connected = True
-                        self._logger.info(
-                            f"Connected to Holzher at {self._base_url()} (probe={ep!r}, status={code})"
-                        )
-                        return
+                # 401/403 still proves reachability; auth can be configured
+                if code in (401, 403):
+                    self._connected = True
+                    self._logger.warning(
+                        f"Holzher reachable but unauthorized at {self._base_url()} (probe={ep!r}, status={code}). "
+                        f"Configure metaData.username/password or metaData.token."
+                    )
+                    return
 
-                    # 401/403 still proves reachability; auth can be configured
-                    if code in (401, 403):
-                        self._connected = True
-                        self._logger.warning(
-                            f"Holzher reachable but unauthorized at {self._base_url()} (probe={ep!r}, status={code}). "
-                            f"Configure metaData.username/password or metaData.token."
-                        )
-                        return
+            last_err = RuntimeError(
+                f"No probe endpoint returned 2xx/3xx/401/403. Last response snippet: {snippet!r}"
+            )
 
-                last_err = RuntimeError(
-                    f"No probe endpoint returned 2xx/3xx/401/403. Last response snippet: {snippet!r}"
-                )
-
-            except Exception as e:
-                last_err = e
-
-            time.sleep(self.retry_interval)
+        except Exception as e:
+            last_err = e
 
         # Give up
         try:
@@ -479,7 +462,7 @@ class Holzher(AbstractDevice):
 
         self.client = None
         self._connected = False
-        raise RuntimeError(f"Holzher connect failed: {last_err}") from last_err
+        raise ServiceUnavailableException(f"Holzher connect failed: {last_err}") from last_err
 
     def _disconnect(self) -> None:
         """
@@ -503,7 +486,7 @@ class Holzher(AbstractDevice):
         Ensure the transformer has an active Holzher connection.
         """
         if not self._connected:
-            self._connect(timeout_s=10)
+            self._connect()
 
     def _read_data(self):
         """
@@ -511,19 +494,71 @@ class Holzher(AbstractDevice):
         """
         pass
 
-    def _err(self, message: str) -> str:
-        """
-        Standardized error response for Holzher transformer.
-        """
-        try:
-            self._error(message)  # log via AbstractDevice logger
-        except Exception:
-            pass
+    # ############################################################################## #
+    # STANDARD HELPERS (identical in every transformer)
+    # ############################################################################## #
 
-        return json.dumps(
-            {
-                "status": "error",
-                "message": str(message),
-            },
-            default=str,
-        )
+    def _execute_command(self, command) -> str:
+        """
+        Legacy command path, used by Edge HMI control buttons
+        (POST /devices/<id>/execute_command). Hands off to _execute_command_v2.
+        commandJson may be {"command": "x", "args": {...}} or {"command": "x", <args>}.
+        """
+        raw = command.get("commandJson") or "{}"
+        command_json = json.loads(raw) if isinstance(raw, str) else raw
+        args = command_json.get("args")
+        if not isinstance(args, dict):
+            args = {k: v for k, v in command_json.items() if k != "command"}
+        return self._execute_command_v2(command_json.get("command", ""), json.dumps(args))
+
+    @staticmethod
+    def _parse_args(command_args) -> dict:
+        """
+        Parse command_args (the raw request body). Accepts empty, a JSON object, or the
+        documented wrapper {"value": "<JSON object string>"}. The wrapper is only unwrapped
+        when "value" is the only key, so a real "value" arg is left alone.
+        """
+        if not command_args:
+            return {}
+        try:
+            args = json.loads(command_args) if isinstance(command_args, (str, bytes)) else command_args
+            if isinstance(args, dict) and list(args) == ["value"]:
+                inner = args["value"]
+                if isinstance(inner, str) and inner.strip().startswith("{"):
+                    inner = json.loads(inner)
+                if isinstance(inner, dict):
+                    return inner
+        except ValueError as e:
+            raise BadRequestException(f"Command args are not valid JSON: {e}")
+        if not isinstance(args, dict):
+            raise BadRequestException("Command args must be a JSON object")
+        return args
+
+    @staticmethod
+    def _require(args: dict, key: str):
+        """Return args[key], or raise BadRequestException (HTTP 400) when it is missing or blank."""
+        if args.get(key) in (None, ""):
+            raise BadRequestException(f"Missing required arg '{key}'")
+        return args[key]
+
+    @staticmethod
+    def _as_bool(value, default: bool = False) -> bool:
+        """metaData / arg booleans: accepts True/False, "true"/"false" (any case), "1"/"0", "yes"/"no"."""
+        if isinstance(value, bool):
+            return value
+        if value is None or str(value).strip() == "":
+            return default
+        return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+    def _raise_device_error(self, action: str, error: Exception):
+        """
+        Re-raise a failed device call as the runtime exception the API turns into an HTTP error:
+        runtime/HTTP exceptions pass through unchanged; network errors -> 503 (and the transformer
+        is marked disconnected so the next call reconnects); anything else -> 500.
+        """
+        if isinstance(error, (FlexxCoreException, HTTPException)):
+            raise error
+        if isinstance(error, (OSError, TimeoutError, ConnectionError)):
+            self._connected = False
+            raise ServiceUnavailableException(f"{action}: device did not respond ({error})") from error
+        raise ServerErrorException(f"{action} failed: {error}") from error

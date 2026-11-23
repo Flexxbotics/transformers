@@ -3,20 +3,20 @@
   "transformer": "focas2",
   "commands": {
     "connect": {
-      "timeous_s": 10
+      "timeout_s": 10
     },
-    "disconnect": {
-      "arg": ""
-    },
-    "read_status": {
-      "arg": ""
-    },
+    "disconnect": {},
+    "read_status": {},
     "read_status_field": {
       "field": "run"
     },
     "wait_for_cnc": {
       "poll_s": 0.5,
       "timeout_s": 43200
+    },
+    "read_macro": {
+      "macro": "",
+      "length": 10
     },
     "write_macro": {
       "macro": "",
@@ -31,7 +31,6 @@
       "length": ""
     },
     "write_pmc_range": {
-      "arg": "",
       "section": "",
       "data_type": "",
       "start": "",
@@ -42,14 +41,13 @@
     "get_filenames": {
       "directory": ""
     },
-    "get_current_directory": {
-      "arg": ""
-    },
+    "get_current_directory": {},
     "set_current_directory": {
       "directory": ""
     },
-    "program_upload":{
-      "program_path": ""
+    "program_upload": {
+      "program_path": "",
+      "buffer_size": 1024
     },
     "program_download": {
       "program_path": "",

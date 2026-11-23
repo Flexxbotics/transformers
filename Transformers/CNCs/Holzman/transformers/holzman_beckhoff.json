@@ -2,11 +2,26 @@
   "_class": "HolzmanBeckhoff",
   "transformer": "holzman_beckhoff",
   "commands": {
+    "connect": {},
+    "disconnect": {},
+    "read": {
+      "symbol": "",
+      "plc_type": "INT"
+    },
+    "list_symbols": {
+      "prefix": "",
+      "limit": "200"
+    }
   },
   "metaData": {
     "ip_address": "",
     "local_ams_net_id": "",
     "ams_net_id": "",
-    "ams_port": "801"
+    "ams_port": "801",
+    "address": "",
+    "timeout": "2.0",
+    "retry": "2",
+    "retry_interval": "0.1",
+    "auto_connect": "true"
   }
 }

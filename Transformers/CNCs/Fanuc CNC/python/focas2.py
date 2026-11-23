@@ -35,7 +35,15 @@ from ctypes import (
     byref,
 )
 import shutil
+import threading
+from werkzeug.exceptions import HTTPException
 from transformers.abstract_device import AbstractDevice
+from exceptions.flexxCoreExceptions import (
+    FlexxCoreException,
+    BadRequestException,
+    ServerErrorException,
+    ServiceUnavailableException,
+)
 
 
 # -------------------------------
@@ -125,28 +133,33 @@ class FOCAS2(AbstractDevice):
 
     def __init__(self, device: Device):
         """
-        Template device class. Inherits AbstractDevice class.
+        FANUC CNC transformer (FOCAS2 over Ethernet). Loads the fwlib library but does not
+        connect; the first call that needs the CNC connects. Raises ValueError when metaData
+        has no 'ip_address', and RuntimeError when fwlib cannot be loaded.
 
-        :param Device:
+        :param device:
                     the device object
 
         :return:    a new instance
         """
+        super().__init__(device)
+        # Get meta data of the device from its attributes, this contains information such as: ip address, ports, etc
+        self.meta_data = device.metaData or {}
+        self.address = self.meta_data.get("ip_address", "")
+        self.port = int(self.meta_data.get("port", 8193))
+        self.fileshare_path = self.meta_data.get("fileshare_path", "/")
+        self.fileshare_username = self.meta_data.get("fileshare_username", "")
+        self.fileshare_password = self.meta_data.get("fileshare_password", "")
+        if not self.address:
+            raise ValueError("FOCAS2: metaData must contain 'ip_address'")
+
+        # FOCAS state
+        self._fwlib = None
+        self._handle = c_ushort(0)
+        self._handle_thread = None
+        self._connected = False
+
         try:
-            super().__init__(device)
-            # Get meta data of the device from its attributes, this contains information such as: ip address, ports, etc
-            self.meta_data = device.metaData
-            self.address = self.meta_data["ip_address"]
-            self.port = int(self.meta_data.get("port", 8193))
-            self.fileshare_path = self.meta_data.get("fileshare_path", "/")
-            self.fileshare_username = self.meta_data.get("fileshare_username", "")
-            self.fileshare_password = self.meta_data.get("fileshare_password", "")
-
-            # FOCAS state
-            self._fwlib = None
-            self._handle = c_ushort(0)
-            self._connected = False
-
             # Load the correct shared library for the platform (linux/amd64 in your Docker build)
             self._load_fwlib()
             self._define_fwlib_prototypes()
@@ -157,8 +170,7 @@ class FOCAS2(AbstractDevice):
 
     def __del__(self):
         try:
-            if getattr(self, "_connected", False):
-                self._disconnect()
+            self._disconnect()
         except Exception:
             # Never raise in destructor
             pass
@@ -177,38 +189,71 @@ class FOCAS2(AbstractDevice):
                     json with the arguments for the command
 
         :return:    the response after execution of command.
+
+        Every command returns {"status": "ok", ...} JSON; a command that reads
+        something returns it in "value". Args follow the command name; those in
+        [] are optional (default after =), the rest are required:
+            connect [timeout_s=10]   -> {"status": "ok", "connected": true}
+            disconnect               -> {"status": "ok", "connected": false}
+            read_status              -> "value": ODBST.run (int)
+            read_status_field field  -> "field", "value": that ODBST field (int); field
+                                        is one of hdck, tmmode, aut, run, motion, mstb,
+                                        emergency, alarm, edit
+            wait_for_cnc [poll_s=0.4] [timeout_s=43200]
+                                     -> polls until run == 0, then "value": the ODBST
+                                        status dict
+            read_macro macro [length=10]
+                                     -> "value": the macro value (float)
+            read_pmc_range section, data_type, start, end, length
+                                     -> "value": the PMC value (data_type 0=char,
+                                        1=short, 2=long, 3=float, 4=double)
+            get_filenames [directory="//CNC_MEM/USER/PATH1/PART_PROGRAMS"]
+                                     -> sets directory as the current directory, then
+                                        "value": list of program names
+            get_current_directory    -> "value": the directory
+            program_upload program_path [buffer_size=1024]
+                                     -> "value": the program as base64
+            write_macro macro, mcr_val [dec_val=0]
+            write_pmc_range length, section, data_type, start, end, value
+            set_current_directory directory
+            program_download program_path, program_data_base64
+                                     -> {"status": "ok"}
+
+        Errors raise: 400 for missing args, args that are not a JSON object, an
+        unknown status field, program_data_base64 that is not valid base64, or an
+        unknown command; 503 when the CNC does not respond or the FOCAS handle is
+        lost; 500 for any other FOCAS error code, a numeric arg that is not a
+        number, and for wait_for_cnc: alarm, e-stop or timeout.
         """
         # Parse the command from the incoming request
-        args = json.loads(command_args) if command_args else {}
-        args = json.loads(args["value"])
+        args = self._parse_args(command_args)
+        self._info(message=f"Sending command: {command_name}")
         try:
             # ---- Connection management ----
             if command_name == "connect":
-                timeout_s = int(args.get("timeout_s", 10))
+                timeout_s = int(args.get("timeout_s") or 10)
                 self._connect(timeout_s=timeout_s)
-                return self._ok()
+                return json.dumps({"status": "ok", "connected": True})
 
             if command_name == "disconnect":
                 self._disconnect()
-                return self._ok()
+                return json.dumps({"status": "ok", "connected": False})
 
             # ---- Status / wait ----
             if command_name == "read_status":
-                # Returns a dict of common status fields.
+                # Returns the ODBST "run" field.
                 self._ensure_connected()
                 status = self._read_cnc_status()
-                return str(status["run"])
+                return json.dumps({"status": "ok", "value": status["run"]})
 
             if command_name == "read_status_field":
                 # args: {"field": "run"}  (field in status dict)
+                field = self._require(args, "field")
                 self._ensure_connected()
-                field = args.get("field")
-                if not field:
-                    return self._err("Missing required arg: field")
                 status = self._read_cnc_status()
                 if field not in status:
-                    return self._err(f"Unknown status field: {field}")
-                return str(status[field])
+                    raise BadRequestException(f"Unknown status field: {field}")
+                return json.dumps({"status": "ok", "field": field, "value": status[field]})
 
             if command_name == "wait_for_cnc":
                 # Wait until run==0 OR alarm==1 OR emergency==1
@@ -223,47 +268,43 @@ class FOCAS2(AbstractDevice):
                 while True:
                     status = self._read_cnc_status()
                     if status.get("alarm", 0) == 1:
-                        return self._err("CNC alarm detected", data=status)
+                        raise ServerErrorException(f"CNC alarm detected (status={status})")
                     if status.get("emergency", 0) == 1:
-                        return self._err("E-stop detected", data=status)
+                        raise ServerErrorException(f"E-stop detected (status={status})")
                     if status.get("run", 0) == 0:
-                        return self._ok(status)
+                        return json.dumps({"status": "ok", "value": status})
 
                     if (time.time() - start) >= timeout_s:
-                        return self._err("Timed out waiting for CNC", data=status)
+                        raise ServerErrorException(f"Timed out waiting for CNC (status={status})")
 
                     time.sleep(poll_s)
 
             # ---- Macro read/write ----
             if command_name == "read_macro":
                 # args: {"macro": 651, "length": 10}
+                mcr_number = self._require(args, "macro")
+                length = int(args.get("length") or 10)
                 self._ensure_connected()
-                mcr_number = args.get("macro")
-                if mcr_number is None:
-                    return self._err("Missing required arg: macro")
-                length = int(args.get("length", 10))
                 mcr_val, dec_val, joined = self._read_macro(int(mcr_number), length=length)
-                return str(joined)
+                return json.dumps({"status": "ok", "value": joined})
 
             if command_name == "write_macro":
                 # args: {"macro": 651, "mcr_val": 123, "dec_val": 2}
+                mcr_number = self._require(args, "macro")
+                mcr_val = self._require(args, "mcr_val")
+                dec_val = args.get("dec_val") or 0
                 self._ensure_connected()
-                mcr_number = args.get("macro")
-                mcr_val = args.get("mcr_val")
-                dec_val = args.get("dec_val", 0)
-                if mcr_number is None or mcr_val is None:
-                    return self._err("Missing required args: macro, mcr_val (and optional dec_val)")
                 self._write_macro(int(mcr_number), int(mcr_val), int(dec_val))
-                return self._ok()
+                return json.dumps({"status": "ok"})
 
             # ---- PMC read/write ----
             if command_name == "read_pmc_range":
                 # args: {"section": 0, "data_type": 2, "start": 0, "end": 0, "length": 12}
-                self._ensure_connected()
                 required = ["section", "data_type", "start", "end", "length"]
-                missing = [k for k in required if k not in args]
+                missing = [k for k in required if args.get(k) in (None, "")]
                 if missing:
-                    return self._err(f"Missing required args: {', '.join(missing)}")
+                    raise BadRequestException(f"Missing required args: {', '.join(missing)}")
+                self._ensure_connected()
                 val = self._read_pmc_range(
                     section=int(args["section"]),
                     data_type=int(args["data_type"]),
@@ -271,16 +312,15 @@ class FOCAS2(AbstractDevice):
                     end=int(args["end"]),
                     length=int(args["length"]),
                 )
-                # ensure JSON serializable
-                return str(val)
+                return json.dumps({"status": "ok", "value": val}, default=str)
 
             if command_name == "write_pmc_range":
                 # args: {"length": 12, "section": 0, "data_type": 2, "start": 0, "end": 0, "value": 123}
-                self._ensure_connected()
                 required = ["length", "section", "data_type", "start", "end", "value"]
-                missing = [k for k in required if k not in args]
+                missing = [k for k in required if args.get(k) in (None, "")]
                 if missing:
-                    return self._err(f"Missing required args: {', '.join(missing)}")
+                    raise BadRequestException(f"Missing required args: {', '.join(missing)}")
+                self._ensure_connected()
                 self._write_pmc_range(
                     length=int(args["length"]),
                     section=int(args["section"]),
@@ -289,149 +329,107 @@ class FOCAS2(AbstractDevice):
                     end=int(args["end"]),
                     value=args["value"],
                 )
-                return self._ok()
+                return json.dumps({"status": "ok"})
 
             # ---- Program file operations (directory + upload/download) ----
             if command_name == "get_filenames":
                 # args (optional): {"directory": "//CNC_MEM/USER/PATH1/PART_PROGRAMS"}
                 self._ensure_connected()
-                directory = args.get("directory", "//CNC_MEM/USER/PATH1/PART_PROGRAMS")
+                directory = args.get("directory") or "//CNC_MEM/USER/PATH1/PART_PROGRAMS"
                 # Keep behaviour consistent with the legacy driver: set dir before listing
                 self._set_current_directory(directory)
                 names = self._get_filenames()
-                return self._ok(names)
+                return json.dumps({"status": "ok", "value": names})
 
             if command_name == "get_current_directory":
                 self._ensure_connected()
                 d = self._get_current_directory()
-                return str(d)
+                return json.dumps({"status": "ok", "value": d})
 
             if command_name == "set_current_directory":
                 # args: {"directory": "//CNC_MEM/USER/PATH1/PART_PROGRAMS"}
+                directory = self._require(args, "directory")
                 self._ensure_connected()
-                directory = args.get("directory")
-                if not directory:
-                    return self._err("Missing required arg: directory")
                 self._set_current_directory(str(directory))
-                return self._ok()
+                return json.dumps({"status": "ok"})
 
             if command_name == "program_upload":
                 # args: {"program_path": "//CNC_MEM/USER/PATH1/PART_PROGRAMS/O0010", "buffer_size": 1024}
+                program_path = self._require(args, "program_path")
+                buffer_size = int(args.get("buffer_size") or 1024)
                 self._ensure_connected()
-                program_path = args.get("program_path")
-                if not program_path:
-                    return self._err("Missing required arg: program_path")
-                buffer_size = int(args.get("buffer_size", 1024))
                 b64 = self._program_upload(str(program_path), buffer_size=buffer_size)
-                return b64
+                return json.dumps({"status": "ok", "value": b64})
 
             if command_name == "program_download":
-                # args: {"program_path": "//CNC_MEM/USER/PATH1/PART_PROGRAMS/O0010", "program_data_b64": "..."}
+                # args: {"program_path": "//CNC_MEM/USER/PATH1/PART_PROGRAMS/O0010", "program_data_base64": "..."}
+                program_path = self._require(args, "program_path")
+                program_data_b64 = self._require(args, "program_data_base64")
+                try:
+                    raw = base64.b64decode(program_data_b64)
+                except ValueError:
+                    raise BadRequestException("program_data_base64 is not valid base64")
                 self._ensure_connected()
-                program_path = args.get("program_path")
-                program_data_b64 = args.get("program_data_base64")
-                if not program_path or not program_data_b64:
-                    return self._err("Missing required args: program_path, program_data_b64")
-                raw = base64.b64decode(program_data_b64)
                 self._program_download(str(program_path), raw)
-                return self._ok()
-
-            # ---- Unknown command ----
-            return self._err(f"Unknown command_name: {command_name}")
+                return json.dumps({"status": "ok"})
 
         except Exception as e:
-            # Convert any exception into an error response string
-            return self._err(str(e))
+            self._raise_device_error(f"Command '{command_name}'", e)
+
+        raise BadRequestException(f"Unknown command '{command_name}'")
 
     def _read_interval_data(self) -> str:
         """
-        Method to read the status of the device on an interval
+        Called on the poll interval. Does nothing and returns None (the body is empty).
         """
         pass
 
     def _read_status(self, function: str = None) -> str:
-        status = ""
-        if function is None:
-            status = self._execute_command_v2(command_name="read_status", command_args='{"value": "{}"}')
-        elif function == "":  # Some string
-            pass
-        else:
-            pass
-        return status
+        """
+        CNC run state: the ODBST "run" field as a string (e.g. "0" = reset/stopped,
+        "3" = cycle running). Returns "ERROR" when the CNC cannot be read.
+        """
+        try:
+            status = self._read_cnc_status()
+            return str(status["run"])
+        except Exception as e:
+            self._error(message=f"Status read failed: {e}")
+            self._connected = False
+            return "ERROR"
 
     def _read_variable(self, variable_name: str, function: str = None) -> str:
-        value = ""
-        if function is None:
-            value_dict = {"macro": variable_name}
-            args = {
-                "value": json.dumps(value_dict)
-            }
-            return self._execute_command_v2(
-                command_name="read_macro",
-                command_args=json.dumps(args)
-            )
-        elif function == "":  # Some string
-            pass
-        else:
-            pass
-        return value
+        """
+        Read a custom macro variable. variable_name is the macro number (e.g. "500").
+        Returns the value as a string. Raises on failure.
+        """
+        try:
+            mcr_val, dec_val, joined = self._read_macro(int(variable_name))
+            return str(joined)
+        except Exception as e:
+            self._raise_device_error(f"Read variable '{variable_name}'", e)
 
     def _write_variable(self, variable_name: str, variable_value: str, function: str = None) -> str:
-        value = ""
-        if function is None:
-            value_dict = {"macro": variable_name,
-                          "mcr_val": variable_value,
-                          "dec_val": 0}
-            args = {
-                "value": json.dumps(value_dict)
-            }
-            self._execute_command_v2(
-                command_name="write_macro",
-                command_args=json.dumps(args)
-            )
-
-            value_dict = {"macro": variable_name}
-            args = {
-                "value": json.dumps(value_dict)
-            }
-            return self._execute_command_v2(
-                command_name="read_macro",
-                command_args=json.dumps(args)
-            )
-        elif function == "":  # Some string
-            pass
-        else:
-            pass
-        return value
-
-    def _write_parameter(self, parameter_name: str, parameter_value: str, function: str = None) -> str:
-        value = ""
-        if function is None:
-            pass
-        elif function == "":  # Some string
-            pass
-        else:
-            pass
-        return value
-
-    def _read_parameter(self, parameter_name: str, function: str = None) -> str:
-        value = ""
-        if function is None:
-            pass
-        elif function == "":  # Some string
-            pass
-        else:
-            pass
-        return value
+        """
+        Write a custom macro variable as an integer (dec_val 0), then read it back.
+        variable_name is the macro number (e.g. "500"). Returns the value read back
+        as a string. Raises on failure, including a non-zero cnc_wrmacro return code.
+        """
+        try:
+            try:
+                mcr_val = int(variable_value)
+            except (TypeError, ValueError):
+                raise BadRequestException(f"Macro value must be an integer, got {variable_value!r}")
+            self._write_macro(int(variable_name), mcr_val, 0)
+            mcr_val, dec_val, joined = self._read_macro(int(variable_name))
+            return str(joined)
+        except Exception as e:
+            self._raise_device_error(f"Write variable '{variable_name}'", e)
 
     def _read_file_names(self) -> list:
         """
         Method to get a list of filenames from the device via FOCAS2.
 
         :return:    list of filenames
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     KEYSTONE.4 (7.1.11.4)
         """
         self.programs = []
         self._info(message="Reading file names from Fanuc CNC memory")
@@ -441,7 +439,7 @@ class FOCAS2(AbstractDevice):
             self._info(message="Found " + str(len(self.programs)) + " file(s) in Fanuc CNC memory")
         except Exception as e:
             self._error(message="Error reading file names from Fanuc CNC memory: " + str(e))
-            raise Exception("Error reading file names from Fanuc CNC memory: " + str(e))
+            self._raise_device_error("Read file names from Fanuc CNC memory", e)
 
         return self.programs
 
@@ -453,9 +451,6 @@ class FOCAS2(AbstractDevice):
                     the name of the file to read.
 
         :return:    the file's data as base64 string.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     KEYSTONE.4 (7.1.11.4)
         """
         self._info(message="Reading file from Fanuc CNC memory: " + file_name)
         try:
@@ -465,7 +460,7 @@ class FOCAS2(AbstractDevice):
             self._info(message="Successfully read file from Fanuc CNC memory: " + file_name)
         except Exception as e:
             self._error(message="Error reading file from Fanuc CNC memory: " + str(e))
-            raise Exception("Error reading file from Fanuc CNC memory: " + str(e))
+            self._raise_device_error(f"Read file '{file_name}' from Fanuc CNC memory", e)
 
         return b64
 
@@ -477,9 +472,6 @@ class FOCAS2(AbstractDevice):
                     the name of the file to write.
         :param file_data:
                     the data of the file to write as base64 string.
-
-        :author:    tylerjm@flexxbotics.com
-        :since:     ODOULS.3 (7.1.15.3)
         """
         self._info(message="Writing file to Fanuc CNC memory: " + file_name)
         try:
@@ -490,7 +482,7 @@ class FOCAS2(AbstractDevice):
             self._info(message="Successfully wrote file to Fanuc CNC memory: " + file_name)
         except Exception as e:
             self._error(message="Error writing file to Fanuc CNC memory: " + str(e))
-            raise Exception("Error writing file to Fanuc CNC memory: " + str(e))
+            self._raise_device_error(f"Write file '{file_name}' to Fanuc CNC memory", e)
 
     def _load_file(self, file_name: str):
         pass
@@ -616,30 +608,27 @@ class FOCAS2(AbstractDevice):
         fw.cnc_rdprogdir.argtypes = [c_ushort, c_short, c_long, c_long, c_ushort, POINTER(_PRGDIR)]
         fw.cnc_rdprogdir.restype = c_short
 
-    def _ok(self, data=None) -> str:
-        payload = {"success": True}
-        if data is not None:
-            payload["data"] = data
-        return json.dumps(payload)
-
-    def _err(self, message: str, *, data=None, code=None) -> str:
-        payload = {"success": False, "error": message}
-        if code is not None:
-            payload["code"] = code
-        if data is not None:
-            payload["data"] = data
-        return json.dumps(payload)
+    # FOCAS return codes that mean the library handle is no longer usable.
+    _EW_HANDLE = -8
+    _EW_SOCKET = -16
 
     def _ret_check(self, ret: int, function: str) -> None:
         # In FOCAS, 0 is generally EW_OK.
+        if int(ret) in (self._EW_HANDLE, self._EW_SOCKET):
+            # Handle/socket lost (e.g. the CNC power-cycled): reconnect on the next call.
+            self._connected = False
+            raise ServiceUnavailableException(f"Failed - {function}. Lost connection to CNC, error code: {int(ret)}")
         if int(ret) != 0:
-            raise Exception(f"Failed - {function}. Error code: {int(ret)}")
+            raise ServerErrorException(f"Failed - {function}. Error code: {int(ret)}")
 
     # --------------------------------------------------------------------------------------
     # Private: connection + primitives
     # --------------------------------------------------------------------------------------
 
     def _connect(self, *, timeout_s: int = 10) -> None:
+        if self._connected:
+            return
+
         # Create log file if supported. Use a stable location in container.
         # If FANUC fwlib doesn't support logging on a given build, it will return an error code.
         try:
@@ -649,8 +638,8 @@ class FOCAS2(AbstractDevice):
         except Exception:
             pass
 
-        # Free previous handle if present
-        if self._connected and int(self._handle.value) != 0:
+        # Free the handle of a dropped connection if present
+        if int(self._handle.value) != 0:
             try:
                 self._fwlib.cnc_freelibhndl(self._handle)
             except Exception:
@@ -664,30 +653,34 @@ class FOCAS2(AbstractDevice):
             byref(self._handle),
         )
         if ret != 0:
-            detail = self._get_detail_error(handle.value)
-            raise RuntimeError(f"cnc_allclibhndl3 failed rc={rc}, detail={detail}")
-        self._ret_check(ret, "cnc_allclibhndl3")
+            raise ServiceUnavailableException(f"cnc_allclibhndl3 failed rc={ret}")
+        self._handle_thread = threading.get_ident()
         self._connected = True
 
     def _disconnect(self) -> None:
-        if not self._connected:
-            return
-        ret = self._fwlib.cnc_freelibhndl(self._handle)
-        self._ret_check(ret, "cnc_freelibhndl")
-        self._connected = False
-        self._handle = c_ushort(0)
+        try:
+            if int(self._handle.value) != 0:
+                self._fwlib.cnc_freelibhndl(self._handle)
+        finally:
+            self._connected = False
+            self._handle = c_ushort(0)
+            self._handle_thread = None
 
     def _ensure_connected(self) -> None:
+        # A FOCAS library handle is only valid in the thread that allocated it, and the
+        # runtime calls this transformer from different request and poll threads (one at
+        # a time, under the device lock). When the calling thread changes, free the old
+        # handle and allocate a new one in this thread.
+        if self._connected and self._handle_thread != threading.get_ident():
+            self._disconnect()
         if not self._connected:
-            # Auto-connect to match typical driver expectations.
             self._connect(timeout_s=10)
 
     def _read_cnc_status(self) -> dict:
-        self._connect()
+        self._ensure_connected()
         stat = _ODBST()
         ret = self._fwlib.cnc_statinfo(self._handle, byref(stat))
         self._ret_check(ret, "cnc_statinfo")
-        self._disconnect()
         return {
             "hdck": int(stat.hdck),
             "tmmode": int(stat.tmmode),
@@ -701,7 +694,7 @@ class FOCAS2(AbstractDevice):
         }
 
     def _read_macro(self, mcr_number: int, *, length: int = 10):
-        self._connect()
+        self._ensure_connected()
         md = _ODBM()
         ret = self._fwlib.cnc_rdmacro(self._handle, c_short(mcr_number), c_short(length), byref(md))
         self._ret_check(ret, "cnc_rdmacro")
@@ -709,13 +702,11 @@ class FOCAS2(AbstractDevice):
         mcr_val = int(md.mcr_val)
         dec_val = int(md.dec_val)
         joined = self._join_decimal(mcr_val, dec_val)
-        self._disconnect()
         return mcr_val, dec_val, joined
 
     def _write_macro(self, mcr_number: int, mcr_val: int, dec_val: int):
-        self._connect()
+        self._ensure_connected()
         ret = self._fwlib.cnc_wrmacro(self._handle, c_short(mcr_number), c_short(10), c_long(mcr_val), c_short(dec_val))
-        self._disconnect()
         self._ret_check(ret, "cnc_wrmacro")
 
     def _join_decimal(self, mcr_val: int, dec_val: int):
@@ -729,7 +720,7 @@ class FOCAS2(AbstractDevice):
             return f"{mcr_val}e-{dec_val}"
 
     def _read_pmc_range(self, *, section: int, data_type: int, start: int, end: int, length: int):
-        self._connect()
+        self._ensure_connected()
         pmc_data = _IODBPMC()
         ret = self._fwlib.pmc_rdpmcrng(
             self._handle,
@@ -741,21 +732,19 @@ class FOCAS2(AbstractDevice):
             byref(pmc_data),
         )
         self._ret_check(ret, "pmc_rdpmcrng")
-        self._disconnect()
         return pmc_data.u.get_by_dtype(int(data_type))
 
     def _write_pmc_range(self, *, length: int, section: int, data_type: int, start: int, end: int, value):
-        self._connect()
+        self._ensure_connected()
         u = _IODBPMCUnion()
         u.set_by_dtype(int(data_type), value)
         pmc_data = _IODBPMC(c_short(section), c_short(data_type), c_short(start), c_short(end), u)
         ret = self._fwlib.pmc_wrpmcrng(self._handle, c_short(length), byref(pmc_data))
         self._ret_check(ret, "pmc_wrpmcrng")
-        self._disconnect()
 
     def _get_filenames(self):
         # Mirrors legacy behaviour: cnc_rdprogdir returns a blob of directory data in prg_data.
-        self._connect()
+        self._ensure_connected()
         dir_data = _PRGDIR()
         ret = self._fwlib.cnc_rdprogdir(self._handle, c_short(1), c_long(1), c_long(9999), c_ushort(256000), byref(dir_data))
         self._ret_check(ret, "cnc_rdprogdir")
@@ -767,30 +756,27 @@ class FOCAS2(AbstractDevice):
         if decoded.endswith("%"):
             decoded = decoded[:-1]
         names = [line for line in decoded.split("\n") if line.strip()]
-        self._disconnect()
         return names
 
     def _get_current_directory(self) -> str:
-        self._connect()
+        self._ensure_connected()
         buf = ctypes.create_string_buffer(4096)
         # type 0 = NC memory (//CNC_MEM/...), 1 = memory card, 2 = data server, 3 = USB
         ret = self._fwlib.cnc_rdpdf_curdir(self._handle, c_short(0), buf)
         self._ret_check(ret, "cnc_rdpdf_curdir")
-        self._disconnect()
         return buf.value.decode("utf-8", errors="ignore")
 
     def _set_current_directory(self, directory: str) -> None:
-        self._connect()
+        self._ensure_connected()
         buf = ctypes.create_string_buffer(directory.encode("utf-8"))
         # type 0 = NC memory (//CNC_MEM/...), 1 = memory card, 2 = data server, 3 = USB
         ret = self._fwlib.cnc_wrpdf_curdir(self._handle, c_short(0), buf)
         self._ret_check(ret, "cnc_wrpdf_curdir")
-        self._disconnect()
 
     def _program_upload(self, program_path: str, *, buffer_size: int = 1024) -> str:
         import time
 
-        self._connect()
+        self._ensure_connected()
         # Ensure any prior upload is ended
         try:
             self._fwlib.cnc_upend4(self._handle)
@@ -823,12 +809,11 @@ class FOCAS2(AbstractDevice):
         data = b"".join(chunks)
         # Trim null padding
         data = data.rstrip(b"\x00")
-        self._disconnect()
 
         return base64.b64encode(data).decode("ascii")
 
     def _program_download(self, program_path: str, program_data: bytes, *, max_chunk: int = 1400) -> None:
-        self._connect()
+        self._ensure_connected()
         # Ensure any prior download is ended
         try:
             self._fwlib.cnc_dwnend4(self._handle)
@@ -849,4 +834,72 @@ class FOCAS2(AbstractDevice):
 
         ret_end = self._fwlib.cnc_dwnend4(self._handle)
         self._ret_check(ret_end, "cnc_dwnend4")
-        self._disconnect()
+
+    # ############################################################################## #
+    # STANDARD HELPERS (identical in every transformer)
+    # ############################################################################## #
+
+    def _execute_command(self, command) -> str:
+        """
+        Legacy command path, used by Edge HMI control buttons
+        (POST /devices/<id>/execute_command). Hands off to _execute_command_v2.
+        commandJson may be {"command": "x", "args": {...}} or {"command": "x", <args>}.
+        """
+        raw = command.get("commandJson") or "{}"
+        command_json = json.loads(raw) if isinstance(raw, str) else raw
+        args = command_json.get("args")
+        if not isinstance(args, dict):
+            args = {k: v for k, v in command_json.items() if k != "command"}
+        return self._execute_command_v2(command_json.get("command", ""), json.dumps(args))
+
+    @staticmethod
+    def _parse_args(command_args) -> dict:
+        """
+        Parse command_args (the raw request body). Accepts empty, a JSON object, or the
+        documented wrapper {"value": "<JSON object string>"}. The wrapper is only unwrapped
+        when "value" is the only key, so a real "value" arg is left alone.
+        """
+        if not command_args:
+            return {}
+        try:
+            args = json.loads(command_args) if isinstance(command_args, (str, bytes)) else command_args
+            if isinstance(args, dict) and list(args) == ["value"]:
+                inner = args["value"]
+                if isinstance(inner, str) and inner.strip().startswith("{"):
+                    inner = json.loads(inner)
+                if isinstance(inner, dict):
+                    return inner
+        except ValueError as e:
+            raise BadRequestException(f"Command args are not valid JSON: {e}")
+        if not isinstance(args, dict):
+            raise BadRequestException("Command args must be a JSON object")
+        return args
+
+    @staticmethod
+    def _require(args: dict, key: str):
+        """Return args[key], or raise BadRequestException (HTTP 400) when it is missing or blank."""
+        if args.get(key) in (None, ""):
+            raise BadRequestException(f"Missing required arg '{key}'")
+        return args[key]
+
+    @staticmethod
+    def _as_bool(value, default: bool = False) -> bool:
+        """metaData / arg booleans: accepts True/False, "true"/"false" (any case), "1"/"0", "yes"/"no"."""
+        if isinstance(value, bool):
+            return value
+        if value is None or str(value).strip() == "":
+            return default
+        return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+    def _raise_device_error(self, action: str, error: Exception):
+        """
+        Re-raise a failed device call as the runtime exception the API turns into an HTTP error:
+        runtime/HTTP exceptions pass through unchanged; network errors -> 503 (and the transformer
+        is marked disconnected so the next call reconnects); anything else -> 500.
+        """
+        if isinstance(error, (FlexxCoreException, HTTPException)):
+            raise error
+        if isinstance(error, (OSError, TimeoutError, ConnectionError)):
+            self._connected = False
+            raise ServiceUnavailableException(f"{action}: device did not respond ({error})") from error
+        raise ServerErrorException(f"{action} failed: {error}") from error

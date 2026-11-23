@@ -5,8 +5,7 @@
     "connect": {},
     "disconnect": {},
     "read": {
-      "node_id": "",
-      "variant_type": ""
+      "node_id": ""
     },
     "write": {
       "node_id": "",

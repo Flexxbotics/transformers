@@ -48,12 +48,18 @@ import csv
 import glob
 import hashlib
 import json
+import logging
 import os
 import sys
+import threading
 import traceback
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from logging.handlers import RotatingFileHandler
 from typing import Any, Dict, List, Optional, Tuple
+
+LOG_FILE_NAME = "pl_press_server.log"
+logger = logging.getLogger("pl_press_server")
 
 
 # ---------------------------------------------------------------------------
@@ -232,6 +238,12 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "recursive": False,      # recurse into subfolders
     "token": None,           # optional X-Auth-Token shared secret
     "lookback_hours": None,  # default look-back window; None/0 = parse all files
+    # Incremental "last time pulled" watermark, in local time
+    # ("YYYY-MM-DD HH:MM:SS"). When set, get_reports only returns measurements
+    # newer than this and advances it automatically after each pull. Set it once
+    # to the last time you know data was already pulled; leave null to pull the
+    # full look-back window on first run.
+    "last_pulled": None,
 }
 
 
@@ -245,9 +257,14 @@ class Config:
     recursive: bool = False
     token: Optional[str] = None
     default_lookback_hours: Optional[float] = None
+    last_pulled: Optional[str] = None
+    config_path: Optional[str] = None  # config.json path, for persisting last_pulled
 
 
 CONFIG = Config()
+
+# Serializes concurrent config.json rewrites (ThreadingHTTPServer = many threads).
+_config_write_lock = threading.Lock()
 
 
 def _app_dir() -> str:
@@ -261,6 +278,50 @@ def _app_dir() -> str:
     if getattr(sys, "frozen", False):
         return os.path.dirname(os.path.abspath(sys.executable))
     return os.path.dirname(os.path.abspath(__file__))
+
+
+def _setup_logging() -> str:
+    """
+    Configure a rolling file log next to the program (100 MB, 1 backup copy)
+    plus console output. Returns the log file path. Safe to call more than once.
+    """
+    log_path = os.path.join(_app_dir(), LOG_FILE_NAME)
+    if not logger.handlers:
+        fmt = logging.Formatter(
+            "%(asctime)s.%(msecs)03d %(levelname)-7s %(message)s", "%Y-%m-%d %H:%M:%S"
+        )
+        try:
+            fh = RotatingFileHandler(
+                log_path, maxBytes=100 * 1024 * 1024, backupCount=1, encoding="utf-8"
+            )
+            fh.setFormatter(fmt)
+            logger.addHandler(fh)
+        except Exception as exc:  # pragma: no cover
+            print(f"WARNING: could not open log file {log_path}: {exc}")
+        sh = logging.StreamHandler()
+        sh.setFormatter(fmt)
+        logger.addHandler(sh)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    return log_path
+
+
+def _short(obj: Any, limit: int = 600) -> str:
+    """Compact, length-capped repr of params/results for log lines."""
+    try:
+        s = json.dumps(obj, default=str)
+    except Exception:
+        s = str(obj)
+    return s if len(s) <= limit else s[:limit] + "…"
+
+
+def _result_summary(result: Any) -> str:
+    if isinstance(result, dict):
+        if "count" in result:
+            return f" count={result['count']}"
+        if "measurements" in result:
+            return f" measurements={len(result['measurements'])}"
+    return ""
 
 
 def load_config_file(path: Optional[str], required: bool) -> Dict[str, Any]:
@@ -308,6 +369,10 @@ def _coerce_epoch(value: Any) -> Optional[float]:
         # Allow a trailing 'Z' for UTC.
         if text.endswith("Z"):
             text = text[:-1] + "+00:00"
+        # Accept a space between the date and time (the human-friendly watermark
+        # format) as well as the ISO 'T'.
+        if "T" not in text and " " in text:
+            text = text.replace(" ", "T", 1)
         try:
             dt = datetime.fromisoformat(text)
         except ValueError:
@@ -320,8 +385,60 @@ def _coerce_epoch(value: Any) -> Optional[float]:
     raise RpcError(INVALID_PARAMS, f"Unsupported time value: {value!r}")
 
 
+def _epoch_or_none(value: Any) -> Optional[float]:
+    """Lenient variant of _coerce_epoch: returns None instead of raising."""
+    try:
+        return _coerce_epoch(value)
+    except RpcError:
+        return None
+
+
 def _iso_local(epoch: float) -> str:
     return datetime.fromtimestamp(epoch).isoformat()
+
+
+# ---------------------------------------------------------------------------
+# "Last time pulled" watermark
+# ---------------------------------------------------------------------------
+def _fmt_watermark(dt: datetime) -> str:
+    """
+    Format a datetime as the human-friendly, hand-editable watermark string in
+    local time. Sub-second precision is kept only when present, so file-based
+    watermarks stay exact while measurement-time watermarks read cleanly.
+    """
+    if dt.microsecond:
+        return dt.strftime("%Y-%m-%d %H:%M:%S.%f")
+    return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _save_last_pulled(value: str) -> None:
+    """
+    Advance the in-memory watermark and persist it to config.json, preserving
+    every other key. Writes atomically (temp file + os.replace). A failure to
+    write is logged but never interrupts the pull that triggered it.
+    """
+    CONFIG.last_pulled = value
+    path = CONFIG.config_path
+    if not path:
+        logger.warning("Cannot persist last_pulled (no config file path known)")
+        return
+    with _config_write_lock:
+        try:
+            data: Dict[str, Any] = {}
+            if os.path.isfile(path):
+                with open(path, "r", encoding="utf-8") as fh:
+                    loaded = json.load(fh)
+                if isinstance(loaded, dict):
+                    data = loaded
+            data["last_pulled"] = value
+            tmp = path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(data, fh, indent=2)
+                fh.write("\n")
+            os.replace(tmp, path)
+            logger.info("Advanced last_pulled watermark to '%s' (saved to %s)", value, path)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to persist last_pulled to %s: %s", path, exc)
 
 
 # ---------------------------------------------------------------------------
@@ -384,6 +501,7 @@ def _discover_files(
         results.append((path, mtime))
 
     results.sort(key=lambda item: item[1], reverse=True)
+    logger.info("Discovered %d file(s) in %s (pattern=%s)", len(results), base, glob_pattern)
     return results
 
 
@@ -391,12 +509,15 @@ def _discover_files(
 # RPC methods
 # ---------------------------------------------------------------------------
 def rpc_ping(**_: Any) -> Dict[str, Any]:
+    directory = os.path.abspath(CONFIG.directory) if CONFIG.directory else None
     return {
         "ok": True,
         "service": "pl-press-report-server",
-        "directory": os.path.abspath(CONFIG.directory) if CONFIG.directory else None,
+        "directory": directory,
+        "directory_available": bool(directory and os.path.isdir(directory)),
         "port": CONFIG.port,
         "default_lookback_hours": CONFIG.default_lookback_hours,
+        "last_pulled": CONFIG.last_pulled,
         "server_time": datetime.now().isoformat(),
     }
 
@@ -442,17 +563,32 @@ def rpc_get_reports(
     Parse every report in the window and return them keyed by a stable
     report_id. Duplicate reports (same intrinsic id) are collapsed, keeping the
     most recently modified file.
+
+    Incremental pull: when the caller passes no explicit ``since``, the stored
+    ``last_pulled`` watermark is used, and each individual measurement row is
+    filtered so only rows with a timestamp strictly after the watermark are
+    returned. After a forward pull (no ``until`` bound) the watermark advances to
+    the newest measurement timestamp actually returned.
     """
-    files = _discover_files(directory, since, until, modified_within_hours, pattern, recursive)
+    # since precedence: explicit caller arg > stored watermark > look-back window.
+    watermark = CONFIG.last_pulled
+    effective_since = since if since is not None else watermark
+    wm_epoch = _epoch_or_none(effective_since)
+    if since is None and watermark and wm_epoch is None:
+        logger.warning("Ignoring unparseable last_pulled watermark: %r", watermark)
+
+    files = _discover_files(directory, effective_since, until, modified_within_hours, pattern, recursive)
 
     reports: Dict[str, Any] = {}
     errors: List[Dict[str, str]] = []
+    max_ts_epoch: Optional[float] = None  # newest measurement timestamp delivered
 
     # files are newest-first; the first occurrence of a report_id wins.
     for path, mtime in files:
         try:
             report = PLPressReportParser.parse_csv(path)
         except Exception as exc:  # noqa: BLE001 - report per-file, keep going
+            logger.warning("Failed to parse %s: %s", os.path.basename(path), exc)
             errors.append({"source_file": os.path.basename(path), "path": path, "error": str(exc)})
             continue
 
@@ -460,6 +596,35 @@ def rpc_get_reports(
         if report_id in reports:
             continue  # older duplicate; skip
 
+        # Keep only measurement rows newer than the watermark. Rows with a
+        # missing/unparseable timestamp are kept (we can't prove they're old).
+        measurements = report.get("measurements") or []
+        if wm_epoch is not None:
+            kept = []
+            for m in measurements:
+                ts_epoch = _epoch_or_none(m.get("timestamp"))
+                if ts_epoch is not None and ts_epoch <= wm_epoch:
+                    continue  # already pulled in a previous run
+                kept.append(m)
+            measurements = kept
+
+        if not measurements:
+            continue  # nothing new in this file
+
+        # Track the high-water mark and recompute per-report timestamps/count on
+        # the filtered set so the response reflects only the new rows.
+        ts_values = []
+        for m in measurements:
+            ts_epoch = _epoch_or_none(m.get("timestamp"))
+            if ts_epoch is not None:
+                ts_values.append(ts_epoch)
+                if max_ts_epoch is None or ts_epoch > max_ts_epoch:
+                    max_ts_epoch = ts_epoch
+        ts_iso = [m.get("timestamp") for m in measurements if m.get("timestamp")]
+        report["measurements"] = measurements
+        report["measurement_count"] = len(measurements)
+        report["header"]["first_timestamp"] = min(ts_iso) if ts_iso else None
+        report["header"]["last_timestamp"] = max(ts_iso) if ts_iso else None
         report["source_file"] = os.path.basename(path)
         report["path"] = path
         report["file_modified"] = _iso_local(mtime)
@@ -468,9 +633,18 @@ def rpc_get_reports(
             report.pop("measurements", None)
         reports[report_id] = report
 
+    # Advance the watermark on a forward pull (no explicit until bound) when we
+    # actually delivered newer measurements.
+    new_watermark = watermark
+    if until is None and max_ts_epoch is not None and (wm_epoch is None or max_ts_epoch > wm_epoch):
+        new_watermark = _fmt_watermark(datetime.fromtimestamp(max_ts_epoch))
+        _save_last_pulled(new_watermark)
+
     return {
         "directory": _resolve_directory(directory),
         "count": len(reports),
+        "pulled_since": effective_since,
+        "last_pulled": new_watermark,
         "reports": reports,
         "errors": errors,
     }
@@ -536,17 +710,23 @@ def _dispatch_single(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
     func = METHODS.get(method)
     if func is None:
+        logger.warning("RPC unknown method: %s", method)
         return error_response(METHOD_NOT_FOUND, f"Unknown method: {method}")
 
+    logger.info("RPC request: %s params=%s", method, _short(params))
     try:
         result = func(**params)
     except RpcError as exc:
+        logger.warning("RPC error: %s -> [%s] %s", method, exc.code, exc.message)
         return error_response(exc.code, exc.message, exc.data)
     except TypeError as exc:
+        logger.warning("RPC bad params: %s -> %s", method, exc)
         return error_response(INVALID_PARAMS, str(exc))
     except Exception as exc:  # noqa: BLE001
+        logger.exception("RPC crashed: %s", method)
         return error_response(INTERNAL_ERROR, str(exc), traceback.format_exc())
 
+    logger.info("RPC success: %s%s", method, _result_summary(result))
     # Notification (no id) -> no response per spec.
     if "id" not in payload:
         return None
@@ -557,6 +737,7 @@ def handle_rpc(body: bytes) -> Optional[Any]:
     try:
         payload = json.loads(body.decode("utf-8"))
     except (ValueError, UnicodeDecodeError):
+        logger.warning("Malformed request body (JSON parse error, %d bytes)", len(body))
         return {"jsonrpc": "2.0", "error": {"code": PARSE_ERROR, "message": "Parse error"}, "id": None}
 
     if isinstance(payload, list):
@@ -600,7 +781,13 @@ class RpcHandler(BaseHTTPRequestHandler):
 
         length = int(self.headers.get("Content-Length", 0) or 0)
         body = self.rfile.read(length) if length else b""
-        response = handle_rpc(body)
+        logger.info("POST %s from %s (%d bytes)", self.path, self.client_address[0], length)
+        try:
+            response = handle_rpc(body)
+        except Exception:
+            logger.exception("Unhandled error handling POST from %s", self.client_address[0])
+            self._write_json(500, {"jsonrpc": "2.0", "error": {"code": INTERNAL_ERROR, "message": "Internal error"}, "id": None})
+            return
         if response is None:
             # All notifications: HTTP 204, no body.
             self.send_response(204)
@@ -609,8 +796,8 @@ class RpcHandler(BaseHTTPRequestHandler):
         self._write_json(200, response)
 
     def log_message(self, fmt: str, *args: Any) -> None:
-        # Keep console output concise; override to route to a logger if desired.
-        print(f"[{self.log_date_time_string()}] {self.address_string()} {fmt % args}")
+        # Route the stdlib HTTP access line to the log at debug level.
+        logger.debug("http %s - %s", self.address_string(), fmt % args)
 
 
 def main() -> None:
@@ -629,7 +816,14 @@ def main() -> None:
                         help="Default look-back window in hours when a caller passes no time filter")
     parser.add_argument("--token",
                         help="Optional shared secret; if set, clients must send it as the X-Auth-Token header")
+    parser.add_argument("--last-pulled", dest="last_pulled",
+                        help="Initial 'last time pulled' watermark, local time 'YYYY-MM-DD HH:MM:SS'")
     args = parser.parse_args()
+
+    log_path = _setup_logging()
+    logger.info("=" * 70)
+    logger.info("PL Press report server starting (pid %s)", os.getpid())
+    logger.info("Logging to %s (rolling, 100 MB x 1 backup)", log_path)
 
     # Resolve the config file: explicit --config/$PLPRESS_CONFIG is required to
     # exist; the implicit config.json beside the program is optional.
@@ -651,32 +845,53 @@ def main() -> None:
     CONFIG.pattern = resolve(args.pattern, "pattern")
     CONFIG.recursive = bool(resolve(args.recursive, "recursive"))
     CONFIG.default_lookback_hours = resolve(args.lookback_hours, "lookback_hours")
+    CONFIG.last_pulled = resolve(args.last_pulled, "last_pulled")
+    CONFIG.config_path = config_path  # where get_reports persists the advancing watermark
     # Token precedence: CLI > config file > environment.
     CONFIG.token = args.token or file_cfg.get("token") or os.environ.get("PLPRESS_RPC_TOKEN")
 
     if not CONFIG.directory:
+        logger.error("No report directory configured (set 'directory' or pass --directory)")
         raise SystemExit(
             "No report directory configured. Set 'directory' in the config file "
             "or pass --directory."
         )
+    # A missing report directory (e.g. an unmounted network share) is treated as
+    # a transient condition, NOT a fatal error: the server still starts and stays
+    # up so health/ping keep working, and each report request re-checks the path,
+    # so the server recovers automatically once the location becomes reachable.
     if not os.path.isdir(CONFIG.directory):
-        raise SystemExit(f"Directory does not exist: {os.path.abspath(CONFIG.directory)}")
+        logger.warning(
+            "Report directory not currently available: %s - starting anyway; "
+            "report requests will retry it until it comes back online",
+            os.path.abspath(CONFIG.directory),
+        )
 
     lb = CONFIG.default_lookback_hours
-    httpd = ThreadingHTTPServer((CONFIG.host, CONFIG.port), RpcHandler)
-    print(f"PL Press report server listening on http://{CONFIG.host}:{CONFIG.port}/rpc")
     if config_loaded:
-        print(f"  config file        : {os.path.abspath(config_path)}")
-    print(f"  report directory   : {os.path.abspath(CONFIG.directory)}")
-    print(f"  file pattern       : {CONFIG.pattern} (recursive={CONFIG.recursive})")
-    print(f"  default look-back  : {f'{lb} h' if lb else 'none (all files)'}")
-    print(f"  auth token         : {'enabled' if CONFIG.token else 'disabled'}")
+        logger.info("Config file: %s", os.path.abspath(config_path))
+    logger.info("Config: directory=%s pattern=%s recursive=%s look-back=%s auth_token=%s",
+                os.path.abspath(CONFIG.directory), CONFIG.pattern, CONFIG.recursive,
+                f"{lb}h" if lb else "none (all files)", "enabled" if CONFIG.token else "disabled")
+    logger.info("Incremental watermark (last_pulled): %s",
+                CONFIG.last_pulled or "not set (will use look-back window on first pull)")
+
+    try:
+        httpd = ThreadingHTTPServer((CONFIG.host, CONFIG.port), RpcHandler)
+    except Exception:
+        logger.exception("Failed to bind http://%s:%s", CONFIG.host, CONFIG.port)
+        raise
+    logger.info("Listening on http://%s:%s/rpc", CONFIG.host, CONFIG.port)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
-        print("\nShutting down...")
+        logger.info("Shutting down (keyboard interrupt)")
+    except Exception:
+        logger.exception("Server loop crashed")
+        raise
     finally:
         httpd.server_close()
+        logger.info("Server stopped")
 
 
 if __name__ == "__main__":

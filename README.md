@@ -219,7 +219,8 @@ FlexxCore · Flexxbotics · Python automation · interoperability · connectivit
 | Haas Next Gen (NGC) | Connector driver for all models of Haas machines using the Next Gen Controller | Transformers/CNCs/Haas |
 | Haas Serial | Connector driver for all models of Haas machines using the legacy controller | Transformers/CNCs/Haas |
 | Fanuc FOCAS2 | Connector driver for all machines using I-Series FANUC-based controllers | Transformers/CNCs/Fanuc CNC |
-| Heidenhain TNC | Connector driver for TNCRemo support for Heidenhain TNC-based controllers | Transformers/CNCs/Heidenhain |
+| Heidenhain TNC530 | Connector driver for TNCRemo support for Heidenhain TNC-based controllers | Transformers/CNCs/Heidenhain |
+| Heidenhain TNC7 | Connector driver for Heidenhain TNC7 controllers over PROFINET (Modbus TCP bridge) | Transformers/CNCs/Heidenhain TNC7 |
 | Yaskawa | Connector driver for Modbus-TCP enabled communication with Yaskawa MP2600 motor controllers | yaskawa_mp2600.py |
 | Okuma | Connector driver for Okuma OSP300 and later controllers | Transformers/CNCs/Okuma |
 | Hexagon | Connector driver for Hexagon CMMs | Transformers/CMMs/Hexagon |
