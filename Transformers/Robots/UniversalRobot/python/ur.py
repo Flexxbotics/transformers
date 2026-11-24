@@ -223,7 +223,8 @@ class UR(AbstractDevice):
         """
         try:
             self._ensure_connected()
-            value = self.client.get_variable(variable_name)
+            value_raw = self.client.get_variable(variable_name)
+            value = json.loads(value_raw)["value"]
             self._check_reply(value, f"Read variable '{variable_name}'")
 
             return str(value)
@@ -293,7 +294,8 @@ class UR(AbstractDevice):
         """
         try:
             self._ensure_connected()
-            value = self.client.get_value(parameter_name)
+            value_raw = self.client.get_variable(parameter_name)
+            value = json.loads(value_raw)["value"]
             self._check_reply(value, f"Read parameter '{parameter_name}'")
 
             return str(value)
